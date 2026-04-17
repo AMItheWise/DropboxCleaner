@@ -1,0 +1,13 @@
+{
+  "name": "dropbox-cleaner-slides",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Presentation deck source for Dropbox Cleaner",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node build_deck.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

@@ -1,0 +1,27 @@
+auth:
+  app_key: "YOUR_DROPBOX_APP_KEY"
+  # Prefer saved credentials from the GUI or `dropbox-cleaner oauth-link`.
+  # If you need a non-interactive setup, uncomment one of these:
+  # refresh_token: "YOUR_DROPBOX_REFRESH_TOKEN"
+  # access_token: "YOUR_SHORT_LIVED_ACCESS_TOKEN"
+  scopes:
+    - account_info.read
+    - files.metadata.read
+    - files.content.read
+    - files.content.write
+
+job:
+  source_roots:
+    - /
+  cutoff_date: "2020-05-01"
+  archive_root: "/Archive_PreMay2020"
+  output_dir: "./outputs"
+  batch_size: 500
+  retry_count: 5
+  initial_backoff: 1.0
+  backoff_multiplier: 2.0
+  max_backoff: 30.0
+  conflict_policy: "safe_skip"
+  worker_count: 1
+  include_folders_in_inventory: true
+  exclude_archive_destination: true
