@@ -31,9 +31,10 @@ class VerificationService:
         total = len(matched_files)
         for index, match in enumerate(matched_files, start=1):
             cancellation_token.check()
+            archive_lookup_path = match["archive_canonical_path"] or match["planned_archive_path"]
             archive_entry = retry_call(
-                operation_name=f"verify_get_metadata({match['planned_archive_path']})",
-                func=lambda path=match["planned_archive_path"]: adapter.get_metadata(path),
+                operation_name=f"verify_get_metadata({archive_lookup_path})",
+                func=lambda path=archive_lookup_path: adapter.get_metadata(path),
                 logger=self._logger,
                 retry_settings=job_config.retry,
                 is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
@@ -49,6 +50,16 @@ class VerificationService:
                         archive_size=None,
                         source_content_hash=match["content_hash"],
                         archive_content_hash=None,
+                        account_mode=match.get("account_mode", "personal"),
+                        namespace_id=match.get("namespace_id"),
+                        namespace_type=match.get("namespace_type", "personal"),
+                        namespace_name=match.get("namespace_name"),
+                        member_id=match.get("member_id"),
+                        member_email=match.get("member_email"),
+                        member_display_name=match.get("member_display_name"),
+                        canonical_source_path=match.get("canonical_source_path"),
+                        archive_canonical_path=match.get("archive_canonical_path"),
+                        archive_bucket=match.get("archive_bucket", "personal"),
                     )
                 )
             elif archive_entry.item_type != "file":
@@ -62,6 +73,16 @@ class VerificationService:
                         archive_size=archive_entry.size,
                         source_content_hash=match["content_hash"],
                         archive_content_hash=archive_entry.content_hash,
+                        account_mode=match.get("account_mode", "personal"),
+                        namespace_id=match.get("namespace_id"),
+                        namespace_type=match.get("namespace_type", "personal"),
+                        namespace_name=match.get("namespace_name"),
+                        member_id=match.get("member_id"),
+                        member_email=match.get("member_email"),
+                        member_display_name=match.get("member_display_name"),
+                        canonical_source_path=match.get("canonical_source_path"),
+                        archive_canonical_path=match.get("archive_canonical_path"),
+                        archive_bucket=match.get("archive_bucket", "personal"),
                     )
                 )
             else:
@@ -82,6 +103,16 @@ class VerificationService:
                             archive_size=archive_entry.size,
                             source_content_hash=match["content_hash"],
                             archive_content_hash=archive_entry.content_hash,
+                            account_mode=match.get("account_mode", "personal"),
+                            namespace_id=match.get("namespace_id"),
+                            namespace_type=match.get("namespace_type", "personal"),
+                            namespace_name=match.get("namespace_name"),
+                            member_id=match.get("member_id"),
+                            member_email=match.get("member_email"),
+                            member_display_name=match.get("member_display_name"),
+                            canonical_source_path=match.get("canonical_source_path"),
+                            archive_canonical_path=match.get("archive_canonical_path"),
+                            archive_bucket=match.get("archive_bucket", "personal"),
                         )
                     )
                 else:
@@ -95,6 +126,16 @@ class VerificationService:
                             archive_size=archive_entry.size,
                             source_content_hash=match["content_hash"],
                             archive_content_hash=archive_entry.content_hash,
+                            account_mode=match.get("account_mode", "personal"),
+                            namespace_id=match.get("namespace_id"),
+                            namespace_type=match.get("namespace_type", "personal"),
+                            namespace_name=match.get("namespace_name"),
+                            member_id=match.get("member_id"),
+                            member_email=match.get("member_email"),
+                            member_display_name=match.get("member_display_name"),
+                            canonical_source_path=match.get("canonical_source_path"),
+                            archive_canonical_path=match.get("archive_canonical_path"),
+                            archive_bucket=match.get("archive_bucket", "personal"),
                         )
                     )
             if emit is not None and index % 50 == 0:

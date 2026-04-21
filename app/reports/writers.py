@@ -49,6 +49,15 @@ class ReportWriter:
                 "root_scope_used",
                 "inventory_run_id",
                 "inventory_timestamp",
+                "account_mode",
+                "namespace_id",
+                "namespace_type",
+                "namespace_name",
+                "member_id",
+                "member_email",
+                "member_display_name",
+                "canonical_source_path",
+                "archive_bucket",
             ],
             (
                 {
@@ -64,6 +73,15 @@ class ReportWriter:
                     "root_scope_used": row["root_scope_used"],
                     "inventory_run_id": row["run_id"],
                     "inventory_timestamp": row["inventory_timestamp"],
+                    "account_mode": row["account_mode"],
+                    "namespace_id": row["namespace_id"],
+                    "namespace_type": row["namespace_type"],
+                    "namespace_name": row["namespace_name"],
+                    "member_id": row["member_id"],
+                    "member_email": row["member_email"],
+                    "member_display_name": row["member_display_name"],
+                    "canonical_source_path": row["canonical_source_path"],
+                    "archive_bucket": row["archive_bucket"],
                 }
                 for row in self._repository.iter_inventory_records(run_id)
             ),
@@ -81,9 +99,19 @@ class ReportWriter:
                 "client_modified",
                 "content_hash",
                 "planned_archive_path",
+                "archive_canonical_path",
                 "match_reason",
                 "filter_run_id",
                 "filter_timestamp",
+                "account_mode",
+                "namespace_id",
+                "namespace_type",
+                "namespace_name",
+                "member_id",
+                "member_email",
+                "member_display_name",
+                "canonical_source_path",
+                "archive_bucket",
             ],
             (
                 {
@@ -95,9 +123,19 @@ class ReportWriter:
                     "client_modified": row["client_modified"],
                     "content_hash": row["content_hash"],
                     "planned_archive_path": row["planned_archive_path"],
+                    "archive_canonical_path": row["archive_canonical_path"],
                     "match_reason": row["match_reason"],
                     "filter_run_id": row["run_id"],
                     "filter_timestamp": row["filter_timestamp"],
+                    "account_mode": row["account_mode"],
+                    "namespace_id": row["namespace_id"],
+                    "namespace_type": row["namespace_type"],
+                    "namespace_name": row["namespace_name"],
+                    "member_id": row["member_id"],
+                    "member_email": row["member_email"],
+                    "member_display_name": row["member_display_name"],
+                    "canonical_source_path": row["canonical_source_path"],
+                    "archive_bucket": row["archive_bucket"],
                 }
                 for row in self._repository.iter_matched_files(run_id)
             ),
@@ -110,7 +148,9 @@ class ReportWriter:
                 "run_id",
                 "mode",
                 "original_path",
+                "canonical_source_path",
                 "archive_path",
+                "archive_canonical_path",
                 "dropbox_id",
                 "size",
                 "server_modified",
@@ -121,6 +161,14 @@ class ReportWriter:
                 "attempt_count",
                 "first_attempt_at",
                 "last_attempt_at",
+                "account_mode",
+                "namespace_id",
+                "namespace_type",
+                "namespace_name",
+                "member_id",
+                "member_email",
+                "member_display_name",
+                "archive_bucket",
             ],
             (record.to_csv_row() for record in self._repository.manifest_rows(run_id)),
         )
@@ -143,6 +191,16 @@ class ReportWriter:
                 "archive_size",
                 "source_content_hash",
                 "archive_content_hash",
+                "account_mode",
+                "namespace_id",
+                "namespace_type",
+                "namespace_name",
+                "member_id",
+                "member_email",
+                "member_display_name",
+                "canonical_source_path",
+                "archive_canonical_path",
+                "archive_bucket",
             ],
             rows,
         )
@@ -176,6 +234,7 @@ class ReportWriter:
             folder_breakdown=folder_breakdown,
             conflicts_preview=self._repository.preview_copy_statuses(run_context.run_id, "skipped_existing_conflict"),
             failures_preview=self._repository.preview_copy_statuses(run_context.run_id, "failed"),
+            blocked_preview=self._repository.preview_copy_statuses(run_context.run_id, "blocked_precondition"),
             verification=verification_summary,
         )
         atomic_text_write(output_paths.summary_json, json.dumps(asdict(report), indent=2))
@@ -206,11 +265,14 @@ class ReportWriter:
                 "exclude_archive_destination": job_config.exclude_archive_destination,
                 "worker_count": job_config.worker_count,
                 "verify_after_run": job_config.verify_after_run,
+                "team_coverage_preset": job_config.team_coverage_preset,
             },
             "auth": {
                 "method": auth_config.method,
+                "account_mode": auth_config.account_mode,
                 "app_key": auth_config.app_key,
                 "scopes": list(auth_config.scopes),
+                "admin_member_id": auth_config.admin_member_id,
             },
         }
         atomic_text_write(path, json.dumps(snapshot, indent=2))
@@ -233,6 +295,8 @@ class ReportWriter:
             f"- Mode: `{report.mode}`",
             f"- Created At: `{report.created_at}`",
             f"- Items Scanned: `{report.totals.get('items_scanned', 0)}`",
+            f"- Namespaces Scanned: `{report.totals.get('namespaces_scanned', 0)}`",
+            f"- Members Covered: `{report.totals.get('members_covered', 0)}`",
             f"- Files Matched: `{report.totals.get('files_matched', 0)}`",
             f"- Files Copied: `{report.totals.get('files_copied', 0)}`",
             f"- Files Skipped: `{report.totals.get('files_skipped', 0)}`",
@@ -255,6 +319,9 @@ class ReportWriter:
         if report.failures_preview:
             lines.extend(["", "## Failures", ""])
             lines.extend(f"- {item}" for item in report.failures_preview)
+        if report.blocked_preview:
+            lines.extend(["", "## Blocked Preconditions", ""])
+            lines.extend(f"- {item}" for item in report.blocked_preview)
         if report.verification:
             lines.extend(
                 [

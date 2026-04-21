@@ -37,11 +37,16 @@ class RunOrchestrator:
         ui_log_queue: Queue[str] | None = None,
     ) -> RunResult:
         cancellation_token = cancellation_token or CancellationToken()
-        source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots)
-        if not source_roots:
-            raise ValueError("At least one Dropbox source root is required.")
+        if auth_config.account_mode == "personal":
+            source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots)
+            if not source_roots:
+                raise ValueError("At least one Dropbox source root is required.")
+            job_config.source_roots = source_roots
+        else:
+            ignored_roots = []
+            if not job_config.source_roots:
+                job_config.source_roots = ["/"]
 
-        job_config.source_roots = source_roots
         job_config.archive_root = normalize_dropbox_path(job_config.archive_root)
 
         run_id = new_run_id()
@@ -124,6 +129,7 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=config_payload["verify_after_run"],
+            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
         )
         return self._execute_workflow(
             repository=repository,
@@ -174,12 +180,11 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=True,
+            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
         )
         adapter = self._adapter_factory(auth_config, logger)
-        verification_rows = []
         try:
-            verification_service = VerificationService(repository, logger)
-            verification_rows = verification_service.run(
+            verification_rows = VerificationService(repository, logger).run(
                 adapter=adapter,
                 run_context=run_context,
                 job_config=job_config,
@@ -219,13 +224,37 @@ class RunOrchestrator:
         cancellation_token: CancellationToken,
         resume_phase: str | None,
     ) -> RunResult:
-        planner = ArchivePlanner(job_config.archive_root, job_config.exclude_archive_destination)
         verification_summary: dict = {}
         adapter = self._adapter_factory(auth_config, logger)
+        planner = ArchivePlanner(job_config.archive_root, job_config.exclude_archive_destination, auth_config.account_mode)
+        traversal_roots = None
         try:
             if emit is not None:
                 emit(ProgressSnapshot(phase="connecting", message="Connecting to Dropbox"))
-            adapter.get_current_account()
+            account = adapter.get_current_account()
+
+            if auth_config.account_mode == "team_admin":
+                if emit is not None:
+                    emit(ProgressSnapshot(phase="team_discovery", message="Discovering team members and namespaces"))
+                team_discovery = adapter.get_team_discovery(job_config)
+                create_archive = run_context.mode == "copy_run"
+                team_discovery = adapter.prepare_archive_destination(team_discovery, job_config.archive_root, create=create_archive)
+                planner.with_team_discovery(team_discovery)
+                traversal_roots = team_discovery.traversal_roots
+                repository.record_event(
+                    run_context.run_id,
+                    "team_discovery",
+                    "INFO",
+                    "team_discovery_complete",
+                    f"Connected to team {account.team_name or account.display_name}.",
+                    {
+                        "team_name": account.team_name,
+                        "team_model": team_discovery.team_model,
+                        "active_member_count": account.active_member_count,
+                        "namespace_count": account.namespace_count,
+                        "archive_status_detail": team_discovery.archive_status_detail,
+                    },
+                )
 
             pending_copy_jobs = repository.fetch_copy_jobs(
                 run_context.run_id,
@@ -236,12 +265,12 @@ class RunOrchestrator:
             counters = repository.get_counters(run_context.run_id)
             has_matches = counters.get("files_matched", 0) > 0
 
-            should_run_inventory = resume_phase in (None, "created", "inventory")
+            should_run_inventory = resume_phase in (None, "created", "inventory", "team_discovery")
             should_run_filter = run_context.mode != "inventory_only" and (
-                resume_phase in (None, "created", "inventory", "filter") or not has_matches
+                resume_phase in (None, "created", "inventory", "team_discovery", "filter") or not has_matches
             )
             should_run_copy = run_context.mode in ("dry_run", "copy_run") and (
-                resume_phase in (None, "created", "inventory", "filter", "copy") or has_pending_copy_jobs
+                resume_phase in (None, "created", "inventory", "team_discovery", "filter", "copy") or has_pending_copy_jobs
             )
             should_run_verify = run_context.mode in ("dry_run", "copy_run") and job_config.verify_after_run
 
@@ -255,6 +284,7 @@ class RunOrchestrator:
                     planner=planner,
                     emit=emit,
                     cancellation_token=cancellation_token,
+                    traversal_roots=traversal_roots,
                 )
 
             if should_run_filter:

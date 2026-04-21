@@ -11,9 +11,13 @@ from platformdirs import user_config_dir
 from dropbox import DropboxOAuth2FlowNoRedirect
 
 from app.dropbox_client.adapter import DropboxAdapter
-from app.models.config import AuthConfig, DEFAULT_SCOPES, StoredCredentials
+from app.models.config import AuthConfig, DEFAULT_PERSONAL_SCOPES, DEFAULT_TEAM_SCOPES, StoredCredentials
 from app.models.records import AccountInfo
 from app.utils.atomic import atomic_text_write
+
+
+def default_scopes_for_mode(account_mode: str) -> tuple[str, ...]:
+    return DEFAULT_TEAM_SCOPES if account_mode == "team_admin" else DEFAULT_PERSONAL_SCOPES
 
 
 class CredentialStore:
@@ -42,7 +46,8 @@ class CredentialStore:
         if not payload:
             return None
         raw = json.loads(payload)
-        raw["scopes"] = tuple(raw.get("scopes") or DEFAULT_SCOPES)
+        raw["account_mode"] = raw.get("account_mode") or "personal"
+        raw["scopes"] = tuple(raw.get("scopes") or default_scopes_for_mode(raw["account_mode"]))
         return StoredCredentials(**raw)
 
     def clear(self, label: str) -> None:
@@ -60,13 +65,21 @@ class AuthManager:
         self._adapter_factory = adapter_factory
         self._flows: dict[str, DropboxOAuth2FlowNoRedirect] = {}
 
-    def start_pkce_flow(self, app_key: str, scopes: tuple[str, ...] = DEFAULT_SCOPES, label: str = "default") -> str:
+    def start_pkce_flow(
+        self,
+        app_key: str,
+        scopes: tuple[str, ...],
+        *,
+        account_mode: str = "personal",
+        label: str = "default",
+    ) -> str:
         flow = DropboxOAuth2FlowNoRedirect(
             app_key,
             token_access_type="offline",
             scope=list(scopes),
             use_pkce=True,
         )
+        setattr(flow, "_dropbox_cleaner_account_mode", account_mode)
         self._flows[label] = flow
         return flow.start()
 
@@ -77,9 +90,10 @@ class AuthManager:
         result = flow.finish(auth_code.strip())
         credentials = StoredCredentials(
             method="oauth_pkce",
+            account_mode=getattr(flow, "_dropbox_cleaner_account_mode", "personal"),
             app_key=flow.consumer_key,
             refresh_token=result.refresh_token,
-            scopes=tuple(flow.scope or DEFAULT_SCOPES),
+            scopes=tuple(flow.scope or default_scopes_for_mode(getattr(flow, "_dropbox_cleaner_account_mode", "personal"))),
         )
         self._flows.pop(label, None)
         return credentials
@@ -96,11 +110,13 @@ class AuthManager:
     def credentials_to_auth_config(self, credentials: StoredCredentials) -> AuthConfig:
         return AuthConfig(
             method=credentials.method,
+            account_mode=credentials.account_mode,
             app_key=credentials.app_key,
             refresh_token=credentials.refresh_token,
             access_token=credentials.access_token,
             scopes=credentials.scopes,
             store_label="default",
+            admin_member_id=credentials.admin_member_id,
         )
 
     def test_connection(self, auth_config: AuthConfig, logger) -> AccountInfo:
@@ -116,17 +132,21 @@ class AuthManager:
         self,
         *,
         method: str,
+        account_mode: str,
         app_key: str | None,
         refresh_token: str | None,
         access_token: str | None,
+        admin_member_id: str | None = None,
         label: str = "default",
     ) -> StoredCredentials:
         credentials = StoredCredentials(
             method=method,  # type: ignore[arg-type]
+            account_mode=account_mode,  # type: ignore[arg-type]
             app_key=app_key,
             refresh_token=refresh_token,
             access_token=access_token,
-            scopes=DEFAULT_SCOPES,
+            scopes=default_scopes_for_mode(account_mode),
+            admin_member_id=admin_member_id,
         )
         self.save_credentials(label, credentials)
         return credentials

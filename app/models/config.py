@@ -5,15 +5,29 @@ from pathlib import Path
 from typing import Literal
 
 
+AccountMode = Literal["personal", "team_admin"]
 AuthMethod = Literal["oauth_pkce", "refresh_token", "access_token"]
 RunMode = Literal["inventory_only", "dry_run", "copy_run"]
 ConflictPolicy = Literal["safe_skip", "abort_run"]
+TeamCoveragePreset = Literal["all_team_content", "team_owned_only"]
 
-DEFAULT_SCOPES = (
+DEFAULT_PERSONAL_SCOPES = (
     "account_info.read",
     "files.metadata.read",
     "files.content.read",
     "files.content.write",
+)
+
+DEFAULT_TEAM_SCOPES = (
+    *DEFAULT_PERSONAL_SCOPES,
+    "team_info.read",
+    "members.read",
+    "team_data.member",
+    "sharing.read",
+    "sharing.write",
+    "files.team_metadata.read",
+    "files.team_metadata.write",
+    "team_data.team_space",
 )
 
 
@@ -28,12 +42,14 @@ class RetrySettings:
 @dataclass(slots=True)
 class AuthConfig:
     method: AuthMethod
+    account_mode: AccountMode = "personal"
     app_key: str | None = None
     app_secret: str | None = None
     refresh_token: str | None = None
     access_token: str | None = None
-    scopes: tuple[str, ...] = DEFAULT_SCOPES
+    scopes: tuple[str, ...] = DEFAULT_PERSONAL_SCOPES
     store_label: str = "default"
+    admin_member_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -52,6 +68,7 @@ class JobConfig:
     worker_count: int = 1
     verify_after_run: bool = True
     start_fresh: bool = False
+    team_coverage_preset: TeamCoveragePreset = "all_team_content"
 
 
 @dataclass(slots=True)
@@ -104,9 +121,11 @@ class RunContext:
 @dataclass(slots=True)
 class StoredCredentials:
     method: AuthMethod
+    account_mode: AccountMode
     app_key: str | None
     refresh_token: str | None = None
     access_token: str | None = None
-    scopes: tuple[str, ...] = DEFAULT_SCOPES
+    scopes: tuple[str, ...] = DEFAULT_PERSONAL_SCOPES
     account_name: str | None = None
     account_email: str | None = None
+    admin_member_id: str | None = None

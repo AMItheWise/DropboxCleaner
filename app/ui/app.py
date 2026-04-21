@@ -9,13 +9,13 @@ import traceback
 import webbrowser
 from pathlib import Path
 from queue import Empty, Queue
-from tkinter import END, BOTH, LEFT, RIGHT, VERTICAL, BooleanVar, Listbox, StringVar, Text, Tk
+from tkinter import END, BOTH, LEFT, BooleanVar, Listbox, StringVar, Text, Tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from app.dropbox_client.auth import AuthManager
+from app.dropbox_client.auth import AuthManager, default_scopes_for_mode
 from app.dropbox_client.errors import MissingScopeError
-from app.models.config import AuthConfig, DEFAULT_SCOPES, JobConfig, RetrySettings
+from app.models.config import AuthConfig, JobConfig, RetrySettings
 from app.models.events import ProgressSnapshot
 from app.services.orchestrator import RunOrchestrator
 from app.services.runtime import CancellationToken
@@ -27,6 +27,11 @@ AUTH_LABELS = {
     "access_token": "Access token",
 }
 
+ACCOUNT_MODE_LABELS = {
+    "personal": "Personal",
+    "team_admin": "Team Admin",
+}
+
 MODE_LABELS = {
     "inventory_only": "Inventory only",
     "dry_run": "Dry run",
@@ -34,12 +39,17 @@ MODE_LABELS = {
     "resume_previous_run": "Resume previous run",
 }
 
+TEAM_COVERAGE_LABELS = {
+    "all_team_content": "All team content",
+    "team_owned_only": "Team-owned only",
+}
+
 
 class DropboxCleanerApp:
     def __init__(self, root: Tk) -> None:
         self.root = root
         self.root.title("Dropbox Cleaner")
-        self.root.geometry("1180x860")
+        self.root.geometry("1260x900")
 
         self.auth_manager = AuthManager()
         self.orchestrator = RunOrchestrator()
@@ -49,17 +59,22 @@ class DropboxCleanerApp:
         self.worker_thread: threading.Thread | None = None
         self.latest_run_dir: Path | None = None
 
+        self.account_mode_var = StringVar(value="personal")
         self.auth_method_var = StringVar(value="oauth_pkce")
         self.app_key_var = StringVar()
         self.auth_code_var = StringVar()
         self.token_var = StringVar()
+        self.admin_member_id_var = StringVar()
         self.account_info_var = StringVar(value="Not connected.")
+        self.connection_help_var = StringVar()
+        self.job_setup_hint_var = StringVar()
 
         self.source_root_var = StringVar()
         self.cutoff_date_var = StringVar(value="2020-05-01")
         self.archive_root_var = StringVar(value="/Archive_PreMay2020")
         self.output_dir_var = StringVar(value=str(Path("outputs").resolve()))
         self.mode_var = StringVar(value="dry_run")
+        self.team_coverage_var = StringVar(value="all_team_content")
         self.batch_size_var = StringVar(value="500")
         self.retry_count_var = StringVar(value="5")
         self.initial_backoff_var = StringVar(value="1.0")
@@ -72,6 +87,8 @@ class DropboxCleanerApp:
 
         self.phase_var = StringVar(value="Idle")
         self.items_scanned_var = StringVar(value="0")
+        self.namespaces_scanned_var = StringVar(value="0")
+        self.members_covered_var = StringVar(value="0")
         self.files_matched_var = StringVar(value="0")
         self.files_copied_var = StringVar(value="0")
         self.files_skipped_var = StringVar(value="0")
@@ -79,9 +96,8 @@ class DropboxCleanerApp:
         self.last_output_var = StringVar(value="")
         self.dry_run_banner_var = StringVar(value="DRY RUN: no Dropbox changes will be made.")
 
-        self.generated_files = Listbox(self.root, height=8)
-
         self._build_ui()
+        self._apply_account_mode_ui()
         self._load_saved_credentials_hint()
         self._load_latest_run_hint()
         self.root.after(200, self._poll_queues)
@@ -108,43 +124,56 @@ class DropboxCleanerApp:
         frame = ttk.Frame(self.connection_tab, padding=12)
         frame.pack(fill=BOTH, expand=True)
 
-        ttk.Label(frame, text="Authentication Method").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text="Account Mode").grid(row=0, column=0, sticky="w")
+        mode_box = ttk.Combobox(
+            frame,
+            textvariable=self.account_mode_var,
+            values=list(ACCOUNT_MODE_LABELS.keys()),
+            state="readonly",
+        )
+        mode_box.grid(row=0, column=1, sticky="ew", padx=8, pady=4)
+        mode_box.bind("<<ComboboxSelected>>", lambda _event: self._apply_account_mode_ui())
+
+        ttk.Label(frame, text="Authentication Method").grid(row=1, column=0, sticky="w")
         method_box = ttk.Combobox(
             frame,
             textvariable=self.auth_method_var,
             values=list(AUTH_LABELS.keys()),
             state="readonly",
         )
-        method_box.grid(row=0, column=1, sticky="ew", padx=8, pady=4)
+        method_box.grid(row=1, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(frame, text="Dropbox App Key").grid(row=1, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.app_key_var, width=48).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(frame, text="Dropbox App Key").grid(row=2, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.app_key_var, width=48).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(frame, text="Authorization Code").grid(row=2, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.auth_code_var, width=48).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(frame, text="Authorization Code").grid(row=3, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.auth_code_var, width=48).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(frame, text="Refresh or Access Token").grid(row=3, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.token_var, width=48, show="*").grid(row=3, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(frame, text="Refresh or Access Token").grid(row=4, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.token_var, width=48, show="*").grid(row=4, column=1, sticky="ew", padx=8, pady=4)
+
+        ttk.Label(frame, text="Admin Member ID").grid(row=5, column=0, sticky="w")
+        self.admin_member_id_entry = ttk.Entry(frame, textvariable=self.admin_member_id_var, width=48)
+        self.admin_member_id_entry.grid(row=5, column=1, sticky="ew", padx=8, pady=4)
 
         button_row = ttk.Frame(frame)
-        button_row.grid(row=4, column=0, columnspan=2, sticky="w", pady=10)
+        button_row.grid(row=6, column=0, columnspan=2, sticky="w", pady=10)
         ttk.Button(button_row, text="Start OAuth", command=self.start_oauth).pack(side=LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Finish OAuth && Save", command=self.finish_oauth).pack(side=LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Save Token", command=self.save_manual_token).pack(side=LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Test Connection", command=self.test_connection).pack(side=LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Disconnect / Clear", command=self.clear_saved_credentials).pack(side=LEFT)
 
-        ttk.Label(frame, text="Connected Account").grid(row=5, column=0, sticky="nw")
-        ttk.Label(frame, textvariable=self.account_info_var, wraplength=700).grid(row=5, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(frame, text="Connected Account").grid(row=7, column=0, sticky="nw")
+        ttk.Label(frame, textvariable=self.account_info_var, wraplength=880).grid(row=7, column=1, sticky="w", padx=8, pady=6)
 
-        help_text = (
-            "Connection Help\n"
-            "Use OAuth PKCE for a secure local desktop flow. Required Dropbox scopes: "
-            "account_info.read, files.metadata.read, files.content.read, files.content.write.\n"
-            "Nothing is deleted by this app. The initial workflow only inventories files and stages server-side copies."
+        ttk.Label(frame, textvariable=self.connection_help_var, wraplength=980, justify=LEFT).grid(
+            row=8,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(18, 0),
         )
-        help_box = ttk.Label(frame, text=help_text, wraplength=860, justify=LEFT)
-        help_box.grid(row=6, column=0, columnspan=2, sticky="w", pady=(18, 0))
 
         frame.columnconfigure(1, weight=1)
 
@@ -154,9 +183,12 @@ class DropboxCleanerApp:
 
         source_frame = ttk.LabelFrame(frame, text="Source Roots", padding=8)
         source_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(source_frame, textvariable=self.source_root_var, width=36).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(source_frame, text="Add", command=self.add_source_root).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(source_frame, text="Remove Selected", command=self.remove_source_root).pack(side=LEFT)
+        self.source_root_entry = ttk.Entry(source_frame, textvariable=self.source_root_var, width=36)
+        self.source_root_entry.pack(side=LEFT, padx=(0, 8))
+        self.add_source_button = ttk.Button(source_frame, text="Add", command=self.add_source_root)
+        self.add_source_button.pack(side=LEFT, padx=(0, 8))
+        self.remove_source_button = ttk.Button(source_frame, text="Remove Selected", command=self.remove_source_root)
+        self.remove_source_button.pack(side=LEFT)
         self.source_roots_listbox = Listbox(source_frame, height=6)
         self.source_roots_listbox.pack(fill=BOTH, expand=True, pady=(10, 0))
         self.source_roots_listbox.insert(END, "/")
@@ -183,6 +215,23 @@ class DropboxCleanerApp:
             values=list(MODE_LABELS.keys()),
             state="readonly",
         ).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
+
+        ttk.Label(settings_frame, text="Team Coverage").grid(row=4, column=0, sticky="w")
+        self.team_coverage_box = ttk.Combobox(
+            settings_frame,
+            textvariable=self.team_coverage_var,
+            values=list(TEAM_COVERAGE_LABELS.keys()),
+            state="readonly",
+        )
+        self.team_coverage_box.grid(row=4, column=1, sticky="ew", padx=8, pady=4)
+
+        ttk.Label(settings_frame, textvariable=self.job_setup_hint_var, foreground="#1d3557", wraplength=640, justify=LEFT).grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(8, 0),
+        )
 
         advanced_frame = ttk.LabelFrame(frame, text="Advanced", padding=8)
         advanced_frame.grid(row=0, column=1, rowspan=2, sticky="nsew")
@@ -246,15 +295,16 @@ class DropboxCleanerApp:
 
         counters = ttk.Frame(frame)
         counters.pack(fill="x", pady=(0, 10))
-        for idx, (label, variable) in enumerate(
-            (
-                ("Items Scanned", self.items_scanned_var),
-                ("Files Matched", self.files_matched_var),
-                ("Files Copied", self.files_copied_var),
-                ("Files Skipped", self.files_skipped_var),
-                ("Files Failed", self.files_failed_var),
-            )
-        ):
+        counter_rows = (
+            ("Items Scanned", self.items_scanned_var),
+            ("Namespaces", self.namespaces_scanned_var),
+            ("Members", self.members_covered_var),
+            ("Files Matched", self.files_matched_var),
+            ("Files Copied", self.files_copied_var),
+            ("Files Skipped", self.files_skipped_var),
+            ("Files Failed", self.files_failed_var),
+        )
+        for idx, (label, variable) in enumerate(counter_rows):
             ttk.Label(counters, text=f"{label}:").grid(row=0, column=idx * 2, sticky="w")
             ttk.Label(counters, textvariable=variable).grid(row=0, column=idx * 2 + 1, sticky="w", padx=(4, 14))
 
@@ -263,7 +313,7 @@ class DropboxCleanerApp:
         self.log_text.pack(fill=BOTH, expand=True, pady=(4, 8))
 
         ttk.Label(frame, text="Last Output Path").pack(anchor="w")
-        ttk.Label(frame, textvariable=self.last_output_var, wraplength=1000).pack(anchor="w")
+        ttk.Label(frame, textvariable=self.last_output_var, wraplength=1120).pack(anchor="w")
 
     def _build_results_tab(self) -> None:
         frame = ttk.Frame(self.results_tab, padding=12)
@@ -287,6 +337,42 @@ class DropboxCleanerApp:
         self.issues_text = ScrolledText(frame, height=10, state="disabled")
         self.issues_text.pack(fill=BOTH, expand=True, pady=(4, 0))
 
+    def _apply_account_mode_ui(self) -> None:
+        is_team_admin = self.account_mode_var.get() == "team_admin"
+        source_state = "disabled" if is_team_admin else "normal"
+        listbox_state = "disabled" if is_team_admin else "normal"
+        self.source_root_entry.configure(state=source_state)
+        self.add_source_button.configure(state=source_state)
+        self.remove_source_button.configure(state=source_state)
+        self.source_roots_listbox.configure(state=listbox_state)
+        self.team_coverage_box.configure(state="readonly" if is_team_admin else "disabled")
+        self.admin_member_id_entry.configure(state="normal" if is_team_admin else "disabled")
+        if is_team_admin:
+            self.job_setup_hint_var.set(
+                "Team Admin mode inventories the whole Dropbox team from a single admin-authorized app. "
+                "Source roots are not used in this mode; coverage is controlled by the Team Coverage preset."
+            )
+            self.connection_help_var.set(
+                "Connection Help\n"
+                "Use Team Admin mode with a team-linked Dropbox app and OAuth PKCE. Recommended scopes: "
+                "account_info.read, files.metadata.read, files.content.read, files.content.write, "
+                "team_info.read, members.read, team_data.member, sharing.read, sharing.write, "
+                "files.team_metadata.read, files.team_metadata.write, team_data.team_space.\n"
+                "Nothing is deleted by this app. The initial workflow inventories team content and stages server-side copies."
+            )
+            if self.source_roots_listbox.size() == 0:
+                self.source_roots_listbox.insert(END, "/")
+        else:
+            self.job_setup_hint_var.set(
+                "Personal mode inventories the selected Dropbox roots and stages server-side copies into a dedicated archive folder."
+            )
+            self.connection_help_var.set(
+                "Connection Help\n"
+                "Use OAuth PKCE for a secure local desktop flow. Required Dropbox scopes: "
+                "account_info.read, files.metadata.read, files.content.read, files.content.write.\n"
+                "Nothing is deleted by this app. The initial workflow only inventories files and stages server-side copies."
+            )
+
     def add_source_root(self) -> None:
         value = self.source_root_var.get().strip()
         if not value:
@@ -309,16 +395,26 @@ class DropboxCleanerApp:
         if not app_key:
             messagebox.showerror("Missing App Key", "Enter your Dropbox app key first.")
             return
-        authorize_url = self.auth_manager.start_pkce_flow(app_key, tuple(DEFAULT_SCOPES), label="default")
+        account_mode = self.account_mode_var.get()
+        authorize_url = self.auth_manager.start_pkce_flow(
+            app_key,
+            default_scopes_for_mode(account_mode),
+            account_mode=account_mode,
+            label="default",
+        )
         webbrowser.open(authorize_url)
         self.account_info_var.set("Authorization started. Approve the app in your browser, then paste the code here.")
 
     def finish_oauth(self) -> None:
         try:
             credentials = self.auth_manager.finish_pkce_flow(self.auth_code_var.get().strip(), label="default")
+            if self.admin_member_id_var.get().strip():
+                credentials.admin_member_id = self.admin_member_id_var.get().strip()
             self.auth_manager.save_credentials("default", credentials)
+            self.account_mode_var.set(credentials.account_mode)
             self.token_var.set("")
-            self.account_info_var.set("OAuth credentials saved. Use Test Connection to confirm account details.")
+            self._apply_account_mode_ui()
+            self.account_info_var.set("OAuth credentials saved. Use Test Connection to confirm account or team details.")
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("OAuth Failed", str(exc))
 
@@ -329,28 +425,41 @@ class DropboxCleanerApp:
             return
         method = self.auth_method_var.get()
         app_key = self.app_key_var.get().strip() or None
+        account_mode = self.account_mode_var.get()
         if method in ("refresh_token", "oauth_pkce") and not app_key:
             messagebox.showerror("Missing App Key", "A Dropbox app key is required for refresh-token auth.")
             return
         credentials = self.auth_manager.save_manual_token(
             method="refresh_token" if method in ("refresh_token", "oauth_pkce") else "access_token",
+            account_mode=account_mode,
             app_key=app_key,
             refresh_token=token if method in ("refresh_token", "oauth_pkce") else None,
             access_token=token if method == "access_token" else None,
+            admin_member_id=self.admin_member_id_var.get().strip() or None,
         )
-        self.account_info_var.set(f"Saved {AUTH_LABELS[credentials.method]} credentials locally.")
+        self.account_info_var.set(f"Saved {ACCOUNT_MODE_LABELS[credentials.account_mode]} {AUTH_LABELS[credentials.method]} credentials locally.")
 
     def clear_saved_credentials(self) -> None:
         self.auth_manager.clear_credentials("default")
         self.account_info_var.set("Saved credentials cleared.")
         self.token_var.set("")
         self.auth_code_var.set("")
+        self.admin_member_id_var.set("")
 
     def test_connection(self) -> None:
         try:
             auth_config = self._build_auth_config()
             account = self.auth_manager.test_connection(auth_config, self._temporary_logger())
-            self.account_info_var.set(f"{account.display_name} ({account.email or 'no email returned'})")
+            if account.account_mode == "team_admin":
+                self.account_info_var.set(
+                    f"{account.display_name} ({account.email or 'no email returned'})\n"
+                    f"Team: {account.team_name or 'Unknown'}\n"
+                    f"Model: {account.team_model or 'Unknown'}\n"
+                    f"Active Members: {account.active_member_count}\n"
+                    f"Namespaces: {account.namespace_count}"
+                )
+            else:
+                self.account_info_var.set(f"{account.display_name} ({account.email or 'no email returned'})")
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Connection Failed", self._format_exception_for_user(exc))
 
@@ -378,7 +487,11 @@ class DropboxCleanerApp:
         self._clear_text(self.log_text)
         self.phase_var.set("Starting")
         self.progress.start(8)
-        self.dry_run_banner_var.set("DRY RUN: no Dropbox changes will be made." if mode == "dry_run" else "Nothing will be deleted. Originals remain in place.")
+        self.dry_run_banner_var.set(
+            "DRY RUN: no Dropbox changes will be made."
+            if mode == "dry_run"
+            else "Nothing will be deleted. Originals remain in place."
+        )
         self.cancellation_token = CancellationToken()
 
         def worker() -> None:
@@ -441,25 +554,40 @@ class DropboxCleanerApp:
             self._set_text(self.summary_text, "No summary file found yet.")
         if summary_json.exists():
             payload = json.loads(summary_json.read_text(encoding="utf-8"))
-            issues_payload = "\n".join(payload.get("conflicts_preview", []) + payload.get("failures_preview", []))
+            issues_payload = "\n".join(
+                payload.get("conflicts_preview", []) + payload.get("failures_preview", []) + payload.get("blocked_preview", [])
+            )
         self._set_text(self.issues_text, issues_payload or "No conflicts or failures recorded.")
 
     def _build_auth_config(self) -> AuthConfig:
         method = self.auth_method_var.get()
         app_key = self.app_key_var.get().strip() or None
         token = self.token_var.get().strip()
+        account_mode = self.account_mode_var.get()
+        admin_member_id = self.admin_member_id_var.get().strip() or None
         if method == "access_token" and token:
-            return AuthConfig(method="access_token", access_token=token)
+            return AuthConfig(method="access_token", account_mode=account_mode, access_token=token, admin_member_id=admin_member_id)
         if method in ("refresh_token", "oauth_pkce") and token:
-            return AuthConfig(method="refresh_token", app_key=app_key, refresh_token=token)
+            return AuthConfig(
+                method="refresh_token",
+                account_mode=account_mode,
+                app_key=app_key,
+                refresh_token=token,
+                scopes=default_scopes_for_mode(account_mode),
+                admin_member_id=admin_member_id,
+            )
         saved = self.auth_manager.load_credentials("default")
         if saved is None:
             raise ValueError("No saved Dropbox credentials were found. Use OAuth or save a token first.")
-        return self.auth_manager.credentials_to_auth_config(saved)
+        auth_config = self.auth_manager.credentials_to_auth_config(saved)
+        auth_config.account_mode = account_mode
+        if admin_member_id:
+            auth_config.admin_member_id = admin_member_id
+        return auth_config
 
     def _build_job_config(self, mode: str) -> JobConfig:
         source_roots = list(self.source_roots_listbox.get(0, END))
-        if mode != "resume_previous_run" and not source_roots:
+        if self.account_mode_var.get() == "personal" and mode != "resume_previous_run" and not source_roots:
             raise ValueError("Add at least one source root.")
         return JobConfig(
             source_roots=source_roots or ["/"],
@@ -479,6 +607,7 @@ class DropboxCleanerApp:
             exclude_archive_destination=self.exclude_archive_var.get(),
             worker_count=int(self.worker_count_var.get()),
             verify_after_run=True,
+            team_coverage_preset=self.team_coverage_var.get(),  # type: ignore[arg-type]
         )
 
     def _emit_progress(self, snapshot: ProgressSnapshot) -> None:
@@ -518,6 +647,8 @@ class DropboxCleanerApp:
         self.phase_var.set(f"{snapshot.phase}: {snapshot.message}")
         counters = snapshot.counters
         self.items_scanned_var.set(str(counters.get("items_scanned", 0)))
+        self.namespaces_scanned_var.set(str(counters.get("namespaces_scanned", 0)))
+        self.members_covered_var.set(str(counters.get("members_covered", 0)))
         self.files_matched_var.set(str(counters.get("files_matched", 0)))
         self.files_copied_var.set(str(counters.get("files_copied", 0)))
         self.files_skipped_var.set(str(counters.get("files_skipped", 0)))
@@ -562,9 +693,13 @@ class DropboxCleanerApp:
         saved = self.auth_manager.load_credentials("default")
         if saved is not None:
             self.auth_method_var.set(saved.method)
+            self.account_mode_var.set(saved.account_mode)
             if saved.app_key:
                 self.app_key_var.set(saved.app_key)
-            self.account_info_var.set("Saved Dropbox credentials found. Use Test Connection to confirm account details.")
+            if saved.admin_member_id:
+                self.admin_member_id_var.set(saved.admin_member_id)
+            self._apply_account_mode_ui()
+            self.account_info_var.set("Saved Dropbox credentials found. Use Test Connection to confirm account or team details.")
 
     def _load_latest_run_hint(self) -> None:
         latest_pointer = Path(self.output_dir_var.get()) / "latest_run.json"
@@ -587,6 +722,13 @@ class DropboxCleanerApp:
     def _format_exception_for_user(self, exc: Exception) -> str:
         if isinstance(exc, MissingScopeError) or "required scope" in str(exc).casefold():
             required_scope = getattr(exc, "required_scope", None) or "unknown"
+            scope_block = (
+                "account_info.read, files.metadata.read, files.content.read, files.content.write, "
+                "team_info.read, members.read, team_data.member, sharing.read, sharing.write, "
+                "files.team_metadata.read, files.team_metadata.write, team_data.team_space."
+                if self.account_mode_var.get() == "team_admin"
+                else "account_info.read, files.metadata.read, files.content.read, files.content.write."
+            )
             return (
                 "Dropbox app permissions are incomplete.\n\n"
                 f"Missing required scope: {required_scope}\n\n"
@@ -594,7 +736,7 @@ class DropboxCleanerApp:
                 "1. Open your Dropbox app.\n"
                 "2. Go to the Permissions tab.\n"
                 "3. Enable the missing scope, plus the other required scopes:\n"
-                "   account_info.read, files.metadata.read, files.content.read, files.content.write.\n"
+                f"   {scope_block}\n"
                 "4. Save the app settings.\n"
                 "5. In Dropbox Cleaner, click Disconnect / Clear.\n"
                 "6. Run Start OAuth and Finish OAuth & Save again.\n"

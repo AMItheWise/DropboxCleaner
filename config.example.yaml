@@ -1,9 +1,12 @@
 auth:
+  account_mode: "personal"  # personal or team_admin
   app_key: "YOUR_DROPBOX_APP_KEY"
-  # Prefer saved credentials from the GUI or `dropbox-cleaner oauth-link`.
-  # If you need a non-interactive setup, uncomment one of these:
+  # Prefer saved credentials from the GUI or `py -3.11 -m app.cli.main oauth-link`.
+  # For non-interactive setups, uncomment one of these:
   # refresh_token: "YOUR_DROPBOX_REFRESH_TOKEN"
   # access_token: "YOUR_SHORT_LIVED_ACCESS_TOKEN"
+  # Optional in team_admin mode if you need to force a specific admin context:
+  # admin_member_id: "dbmid:YOUR_ADMIN_MEMBER_ID"
   scopes:
     - account_info.read
     - files.metadata.read
@@ -25,3 +28,4 @@ job:
   worker_count: 1
   include_folders_in_inventory: true
   exclude_archive_destination: true
+  team_coverage_preset: "all_team_content"

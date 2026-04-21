@@ -1,19 +1,25 @@
 # Dropbox Cleaner
 
-Local-first desktop utility for inventorying a personal Dropbox account, identifying files older than a cutoff date, and staging archive copies into a dedicated Dropbox archive folder without touching the originals.
+Local-first desktop utility for inventorying Dropbox content, identifying files older than a cutoff date, and staging archive copies into a dedicated Dropbox archive folder without touching the originals.
 
-Dropbox Cleaner is built for cautious archival work. It inventories first, plans first, writes clear manifests, and only performs server-side copy operations when you explicitly choose a real copy run.
+Dropbox Cleaner now supports both:
+
+- personal Dropbox accounts
+- Dropbox team accounts through a single admin-authorized app in `team_admin` mode
+
+It inventories first, plans first, writes manifests and logs, and only performs server-side copy operations when you explicitly choose a real copy run.
 
 ## Highlights
 
-- Local desktop app with a simple Tkinter interface
-- Shared Python backend used by both GUI and CLI
-- Full Dropbox metadata traversal with pagination support
-- Cutoff-based matching using `server_modified`
-- Dry-run mode with planned manifest output
+- Tkinter desktop UI plus CLI
+- Shared backend for GUI and CLI
+- Personal mode and team-admin mode
+- Full metadata traversal with pagination
+- Namespace-aware team inventory and resumable copy state
+- Cutoff filtering based on `server_modified`
+- Dry-run mode with planned manifests
 - Safe copy-first archive staging inside Dropbox
-- SQLite-backed resumability and checkpoints
-- Verification and audit artifacts after each run
+- SQLite-backed resumability, logs, verification, and summaries
 
 ## Preview
 
@@ -24,14 +30,14 @@ Dropbox Cleaner is built for cautious archival work. It inventories first, plans
 
 ## What It Does
 
-- Connects to Dropbox through the official Dropbox Python SDK
-- Enumerates files and folders under the full account root or selected source roots
+- Connects through the official Dropbox Python SDK
+- Enumerates files and folders under selected personal roots or team namespaces
 - Exports a full inventory CSV
 - Identifies files older than a user-selected cutoff date
 - Exports a matched-file CSV with planned archive destinations
-- Creates or reuses a dedicated archive folder such as `/Archive_PreMay2020`
+- Creates or reuses a dedicated archive location such as `/Archive_PreMay2020`
 - Preserves original folder structure under the archive root
-- Writes logs, manifests, summaries, and verification reports
+- Writes manifests, logs, summaries, and verification reports
 - Supports safe resume after interruption
 
 ## What It Does Not Do
@@ -41,20 +47,35 @@ Dropbox Cleaner is built for cautious archival work. It inventories first, plans
 - It does not ask for your Dropbox password
 - It does not silently overwrite archive files
 - It does not rely on Dropbox search
+- It does not download and re-upload files for v1 team-admin workflows
 
-## Quick Start
-
-### Requirements
+## Requirements
 
 - Python 3.11+
-- A personal Dropbox account
-- A Dropbox API app with these scopes:
+- A Dropbox API app
+
+Recommended app scopes by mode:
+
+- Personal:
   - `account_info.read`
   - `files.metadata.read`
   - `files.content.read`
   - `files.content.write`
+- Team Admin:
+  - `account_info.read`
+  - `files.metadata.read`
+  - `files.content.read`
+  - `files.content.write`
+  - `team_info.read`
+  - `members.read`
+  - `team_data.member`
+  - `sharing.read`
+  - `sharing.write`
+  - `files.team_metadata.read`
+  - `files.team_metadata.write`
+  - `team_data.team_space`
 
-### Install
+## Install
 
 ```powershell
 py -3.11 -m venv .venv
@@ -63,13 +84,13 @@ py -3.11 -m pip install -r requirements.txt
 py -3.11 -m pip install -r requirements-dev.txt
 ```
 
-### Run The GUI
+## Run The GUI
 
 ```powershell
 py -3.11 -m app
 ```
 
-### Run The CLI
+## Run The CLI
 
 ```powershell
 py -3.11 -m app.cli.main --help
@@ -79,28 +100,33 @@ py -3.11 -m app.cli.main --help
 
 Recommended flow:
 
-1. Create a scoped Dropbox app in the Dropbox App Console.
-2. Use OAuth PKCE in the GUI or `dropbox-cleaner oauth-link`.
-3. Save the resulting refresh token locally through the app.
-4. Re-authorize if you later add or change scopes.
+1. Create a Dropbox app in the Dropbox App Console.
+2. Choose the correct app type for your mode:
+   - personal user-linked app for personal mode
+   - team-linked app for `team_admin` mode
+3. Enable the required scopes.
+4. Use OAuth PKCE in the GUI or `oauth-link`.
+5. Re-authorize if you later add or change scopes.
 
 The app never asks for your Dropbox password and does not log tokens.
 
 ## Common Workflows
 
-### Inventory Only
+### Personal Inventory Only
 
 ```powershell
-dropbox-cleaner inventory ^
+py -3.11 -m app.cli.main inventory ^
+  --account-mode personal ^
   --use-saved-auth ^
   --source-root / ^
   --output-dir ./outputs
 ```
 
-### Dry Run
+### Personal Dry Run
 
 ```powershell
-dropbox-cleaner dry-run ^
+py -3.11 -m app.cli.main dry-run ^
+  --account-mode personal ^
   --use-saved-auth ^
   --source-root /Team ^
   --cutoff-date 2020-05-01 ^
@@ -108,13 +134,24 @@ dropbox-cleaner dry-run ^
   --output-dir ./outputs
 ```
 
-### Copy Run
+### Team-Admin Dry Run
 
 ```powershell
-dropbox-cleaner copy ^
+py -3.11 -m app.cli.main dry-run ^
+  --account-mode team_admin ^
   --use-saved-auth ^
-  --source-root /Team ^
-  --cutoff-date 2020-05-01 ^
+  --team-coverage-preset all_team_content ^
+  --archive-root /Archive_PreMay2020 ^
+  --output-dir ./outputs
+```
+
+### Team-Admin Copy Run
+
+```powershell
+py -3.11 -m app.cli.main copy ^
+  --account-mode team_admin ^
+  --use-saved-auth ^
+  --team-coverage-preset all_team_content ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
 ```
@@ -122,7 +159,8 @@ dropbox-cleaner copy ^
 ### Resume
 
 ```powershell
-dropbox-cleaner resume ^
+py -3.11 -m app.cli.main resume ^
+  --account-mode team_admin ^
   --use-saved-auth ^
   --job-state ./outputs/your-run-folder/state.db
 ```
@@ -130,10 +168,30 @@ dropbox-cleaner resume ^
 ### Verify
 
 ```powershell
-dropbox-cleaner verify ^
+py -3.11 -m app.cli.main verify ^
+  --account-mode team_admin ^
   --use-saved-auth ^
   --job-state ./outputs/your-run-folder/state.db
 ```
+
+## Team-Admin Notes
+
+- `team_admin` mode is designed for whole-team inventory from one admin-authorized app.
+- The default coverage preset is `all_team_content`.
+- Team reports and manifests are namespace-aware and include:
+  - `account_mode`
+  - `namespace_id`
+  - `namespace_type`
+  - `namespace_name`
+  - `member_id`
+  - `member_email`
+  - `member_display_name`
+  - `canonical_source_path`
+  - `archive_bucket`
+- In team mode, the archive layout is bucketed to avoid collisions:
+  - `/Archive_PreMay2020/team_space/...`
+  - `/Archive_PreMay2020/member_homes/<member-slug>/...`
+  - `/Archive_PreMay2020/shared_namespaces/<namespace-slug>/...`
 
 ## Outputs
 
@@ -150,25 +208,7 @@ Every run creates a timestamped output folder with:
 - `app.jsonl`
 - `state.db`
 
-## Project Structure
-
-```text
-app/
-  cli/
-  dropbox_client/
-  models/
-  persistence/
-  reports/
-  services/
-  ui/
-  utils/
-tests/
-docs/slides/
-```
-
 ## Development
-
-Run the quality checks used by CI:
 
 ```powershell
 py -3.11 -m pytest -q

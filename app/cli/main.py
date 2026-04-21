@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.dropbox_client.auth import AuthManager
-from app.models.config import AuthConfig, DEFAULT_SCOPES, JobConfig, RetrySettings
+from app.dropbox_client.auth import AuthManager, default_scopes_for_mode
+from app.models.config import AuthConfig, JobConfig, RetrySettings
 from app.services.orchestrator import RunOrchestrator
 from app.utils.config import load_yaml_file
 
@@ -28,10 +28,15 @@ def build_parser() -> argparse.ArgumentParser:
     oauth_parser = subparsers.add_parser("oauth-link", help="Run the Dropbox PKCE auth flow and save credentials.")
     oauth_parser.add_argument("--app-key", required=True, help="Dropbox app key.")
     oauth_parser.add_argument(
+        "--account-mode",
+        choices=("personal", "team_admin"),
+        default="personal",
+        help="Authentication mode for Dropbox access.",
+    )
+    oauth_parser.add_argument(
         "--scopes",
         nargs="*",
-        default=list(DEFAULT_SCOPES),
-        help="Dropbox OAuth scopes to request.",
+        help="Dropbox OAuth scopes to request. Defaults to the recommended set for the selected account mode.",
     )
     oauth_parser.set_defaults(handler=handle_oauth_link)
 
@@ -64,13 +69,15 @@ def add_auth_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, help="Optional YAML config file.")
     parser.add_argument("--use-saved-auth", action="store_true", help="Use previously saved credentials.")
     parser.add_argument("--store-label", default="default", help="Saved credential label.")
+    parser.add_argument("--account-mode", choices=("personal", "team_admin"), help="Dropbox account mode.")
     parser.add_argument("--app-key", help="Dropbox app key.")
     parser.add_argument("--refresh-token", help="Dropbox refresh token.")
     parser.add_argument("--access-token", help="Dropbox access token.")
+    parser.add_argument("--admin-member-id", help="Optional Dropbox team admin member ID override for team-admin mode.")
 
 
 def add_job_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--source-root", action="append", dest="source_roots", help="Dropbox root path to include.")
+    parser.add_argument("--source-root", action="append", dest="source_roots", help="Dropbox root path to include in personal mode.")
     parser.add_argument("--cutoff-date", default="2020-05-01", help="Cutoff date in YYYY-MM-DD format.")
     parser.add_argument("--archive-root", default="/Archive_PreMay2020", help="Archive root folder in Dropbox.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"), help="Base output directory.")
@@ -90,15 +97,27 @@ def add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--include-archive-destination",
         action="store_true",
-        help="Do not exclude the archive folder subtree from source traversal.",
+        help="Do not exclude the archive folder subtree from source traversal in personal mode.",
     )
     parser.add_argument("--worker-count", type=int, default=1, help="Requested worker count for copy phase.")
     parser.add_argument("--skip-verify", action="store_true", help="Skip the verification phase.")
+    parser.add_argument(
+        "--team-coverage-preset",
+        choices=("all_team_content", "team_owned_only"),
+        default="all_team_content",
+        help="Coverage preset for team-admin mode.",
+    )
 
 
 def handle_oauth_link(args: argparse.Namespace) -> int:
     auth_manager = AuthManager()
-    authorize_url = auth_manager.start_pkce_flow(args.app_key, tuple(args.scopes), label="default")
+    scopes = tuple(args.scopes) if args.scopes else default_scopes_for_mode(args.account_mode)
+    authorize_url = auth_manager.start_pkce_flow(
+        args.app_key,
+        scopes,
+        account_mode=args.account_mode,
+        label="default",
+    )
     print("Open this URL in your browser and approve the app:\n")
     print(authorize_url)
     print()
@@ -114,7 +133,13 @@ def handle_connect_test(args: argparse.Namespace) -> int:
     logger = get_cli_logger()
     auth_config = resolve_auth_config(args, config_data)
     account = AuthManager().test_connection(auth_config, logger)
-    print(f"Connected as {account.display_name} ({account.email or 'no email returned'}).")
+    if account.account_mode == "team_admin":
+        print(
+            f"Connected as team admin {account.display_name} ({account.email or 'no email returned'}) "
+            f"for team {account.team_name or 'unknown team'} [{account.team_model or 'unknown model'}]."
+        )
+    else:
+        print(f"Connected as {account.display_name} ({account.email or 'no email returned'}).")
     return 0
 
 
@@ -149,27 +174,42 @@ def resolve_auth_config(args: argparse.Namespace, config_data: dict[str, Any]) -
     auth_manager = AuthManager()
     auth_section = config_data.get("auth", {})
     store_label = getattr(args, "store_label", "default")
+    account_mode = args.account_mode or auth_section.get("account_mode") or "personal"
 
     refresh_token = args.refresh_token or auth_section.get("refresh_token")
     access_token = args.access_token or auth_section.get("access_token")
     app_key = args.app_key or auth_section.get("app_key")
+    admin_member_id = args.admin_member_id or auth_section.get("admin_member_id")
 
     if refresh_token:
         return AuthConfig(
             method="refresh_token",
+            account_mode=account_mode,
             app_key=app_key,
             refresh_token=refresh_token,
-            scopes=tuple(auth_section.get("scopes") or DEFAULT_SCOPES),
+            scopes=tuple(auth_section.get("scopes") or default_scopes_for_mode(account_mode)),
             store_label=store_label,
+            admin_member_id=admin_member_id,
         )
     if access_token:
-        return AuthConfig(method="access_token", access_token=access_token, store_label=store_label)
+        return AuthConfig(
+            method="access_token",
+            account_mode=account_mode,
+            access_token=access_token,
+            store_label=store_label,
+            admin_member_id=admin_member_id,
+        )
 
     if args.use_saved_auth or not any((refresh_token, access_token)):
         saved = auth_manager.load_credentials(store_label)
         if saved is None:
             raise ValueError("No saved Dropbox credentials were found. Use oauth-link or supply a token.")
-        return auth_manager.credentials_to_auth_config(saved)
+        auth_config = auth_manager.credentials_to_auth_config(saved)
+        if args.account_mode:
+            auth_config.account_mode = args.account_mode
+        if admin_member_id:
+            auth_config.admin_member_id = admin_member_id
+        return auth_config
 
     raise ValueError("Unable to resolve Dropbox authentication settings.")
 
@@ -196,6 +236,7 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
         exclude_archive_destination=not getattr(args, "include_archive_destination", False),
         worker_count=getattr(args, "worker_count", None) or job_section.get("worker_count", 1),
         verify_after_run=not getattr(args, "skip_verify", False),
+        team_coverage_preset=getattr(args, "team_coverage_preset", None) or job_section.get("team_coverage_preset", "all_team_content"),
     )
 
 

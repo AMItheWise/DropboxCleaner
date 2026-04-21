@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 
 
@@ -78,3 +79,41 @@ def planned_archive_path(archive_root: str, original_path: str) -> str:
     if original_path == "/":
         return archive_root
     return join_dropbox_path(archive_root, original_path)
+
+
+def namespace_relative_path(namespace_id: str | None, path: str) -> str:
+    normalized = normalize_dropbox_path(path)
+    if not namespace_id:
+        return normalized
+    if normalized == "/":
+        return f"ns:{namespace_id}"
+    return f"ns:{namespace_id}{normalized}"
+
+
+def is_namespace_relative_path(path: str) -> bool:
+    return path.startswith("ns:")
+
+
+def namespace_relative_parent(path: str) -> str:
+    if not is_namespace_relative_path(path):
+        return parent_path(path)
+    namespace_id, relative_path = split_namespace_relative_path(path)
+    return namespace_relative_path(namespace_id, parent_path(relative_path))
+
+
+def split_namespace_relative_path(path: str) -> tuple[str | None, str]:
+    if not is_namespace_relative_path(path):
+        return None, normalize_dropbox_path(path)
+    payload = path[3:]
+    if "/" not in payload:
+        return payload, "/"
+    namespace_id, remainder = payload.split("/", 1)
+    return namespace_id, normalize_dropbox_path(f"/{remainder}")
+
+
+def slugify_path_component(value: str | None, fallback: str) -> str:
+    if value:
+        normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip().lower()).strip("-")
+        if normalized:
+            return normalized
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", fallback.strip().lower()).strip("-") or "unknown"

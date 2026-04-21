@@ -48,14 +48,14 @@ class RunStateRepository:
 
                 CREATE TABLE IF NOT EXISTS inventory_checkpoints (
                     run_id TEXT NOT NULL,
-                    root_path TEXT NOT NULL,
+                    root_key TEXT NOT NULL,
                     cursor TEXT,
                     completed INTEGER NOT NULL DEFAULT 0,
                     page_count INTEGER NOT NULL DEFAULT 0,
                     item_count INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
                     updated_at TEXT NOT NULL,
-                    PRIMARY KEY (run_id, root_path),
+                    PRIMARY KEY (run_id, root_key),
                     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
                 );
 
@@ -73,7 +73,17 @@ class RunStateRepository:
                     content_hash TEXT,
                     root_scope_used TEXT NOT NULL,
                     inventory_timestamp TEXT NOT NULL,
-                    PRIMARY KEY (run_id, item_type, path_lower),
+                    account_mode TEXT NOT NULL DEFAULT 'personal',
+                    namespace_id TEXT,
+                    namespace_type TEXT NOT NULL DEFAULT 'personal',
+                    namespace_name TEXT,
+                    member_id TEXT,
+                    member_email TEXT,
+                    member_display_name TEXT,
+                    canonical_source_path TEXT NOT NULL,
+                    canonical_parent_path TEXT NOT NULL,
+                    archive_bucket TEXT NOT NULL DEFAULT 'personal',
+                    PRIMARY KEY (run_id, item_type, canonical_source_path),
                     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
                 );
 
@@ -81,7 +91,7 @@ class RunStateRepository:
                 ON inventory_items(run_id, item_type);
 
                 CREATE INDEX IF NOT EXISTS idx_inventory_items_run_parent
-                ON inventory_items(run_id, parent_path);
+                ON inventory_items(run_id, canonical_parent_path);
 
                 CREATE TABLE IF NOT EXISTS matched_files (
                     run_id TEXT NOT NULL,
@@ -94,20 +104,33 @@ class RunStateRepository:
                     client_modified TEXT,
                     content_hash TEXT,
                     planned_archive_path TEXT NOT NULL,
+                    archive_canonical_path TEXT,
                     match_reason TEXT NOT NULL,
                     filter_timestamp TEXT NOT NULL,
                     parent_path TEXT NOT NULL,
-                    PRIMARY KEY (run_id, original_path),
+                    account_mode TEXT NOT NULL DEFAULT 'personal',
+                    namespace_id TEXT,
+                    namespace_type TEXT NOT NULL DEFAULT 'personal',
+                    namespace_name TEXT,
+                    member_id TEXT,
+                    member_email TEXT,
+                    member_display_name TEXT,
+                    canonical_source_path TEXT NOT NULL,
+                    canonical_parent_path TEXT NOT NULL,
+                    archive_bucket TEXT NOT NULL DEFAULT 'personal',
+                    PRIMARY KEY (run_id, canonical_source_path),
                     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_matched_files_run_parent
-                ON matched_files(run_id, parent_path);
+                ON matched_files(run_id, canonical_parent_path);
 
                 CREATE TABLE IF NOT EXISTS copy_jobs (
                     run_id TEXT NOT NULL,
                     original_path TEXT NOT NULL,
+                    canonical_source_path TEXT NOT NULL,
                     archive_path TEXT NOT NULL,
+                    archive_canonical_path TEXT,
                     dropbox_id TEXT NOT NULL,
                     size INTEGER,
                     server_modified TEXT,
@@ -120,8 +143,17 @@ class RunStateRepository:
                     last_attempt_at TEXT,
                     filename TEXT NOT NULL,
                     parent_path TEXT NOT NULL,
+                    account_mode TEXT NOT NULL DEFAULT 'personal',
+                    namespace_id TEXT,
+                    namespace_type TEXT NOT NULL DEFAULT 'personal',
+                    namespace_name TEXT,
+                    member_id TEXT,
+                    member_email TEXT,
+                    member_display_name TEXT,
+                    canonical_parent_path TEXT NOT NULL,
+                    archive_bucket TEXT NOT NULL DEFAULT 'personal',
                     mode TEXT NOT NULL,
-                    PRIMARY KEY (run_id, original_path),
+                    PRIMARY KEY (run_id, canonical_source_path),
                     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
                 );
 
@@ -154,11 +186,14 @@ class RunStateRepository:
             "exclude_archive_destination": job_config.exclude_archive_destination,
             "worker_count": job_config.worker_count,
             "verify_after_run": job_config.verify_after_run,
+            "team_coverage_preset": job_config.team_coverage_preset,
         }
         auth_payload = {
             "method": auth_config.method,
+            "account_mode": auth_config.account_mode,
             "app_key": auth_config.app_key,
             "scopes": list(auth_config.scopes),
+            "admin_member_id": auth_config.admin_member_id,
         }
         with self._lock:
             self._conn.execute(
@@ -241,7 +276,7 @@ class RunStateRepository:
     def save_inventory_checkpoint(
         self,
         run_id: str,
-        root_path: str,
+        root_key: str,
         *,
         cursor: str | None,
         completed: bool,
@@ -253,9 +288,9 @@ class RunStateRepository:
             self._conn.execute(
                 """
                 INSERT INTO inventory_checkpoints (
-                    run_id, root_path, cursor, completed, page_count, item_count, last_error, updated_at
+                    run_id, root_key, cursor, completed, page_count, item_count, last_error, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id, root_path) DO UPDATE SET
+                ON CONFLICT(run_id, root_key) DO UPDATE SET
                     cursor = excluded.cursor,
                     completed = excluded.completed,
                     page_count = excluded.page_count,
@@ -265,7 +300,7 @@ class RunStateRepository:
                 """,
                 (
                     run_id,
-                    root_path,
+                    root_key,
                     cursor,
                     int(completed),
                     page_count,
@@ -276,11 +311,11 @@ class RunStateRepository:
             )
             self._conn.commit()
 
-    def get_inventory_checkpoint(self, run_id: str, root_path: str) -> dict[str, Any] | None:
+    def get_inventory_checkpoint(self, run_id: str, root_key: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM inventory_checkpoints WHERE run_id = ? AND root_path = ?",
-                (run_id, root_path),
+                "SELECT * FROM inventory_checkpoints WHERE run_id = ? AND root_key = ?",
+                (run_id, root_key),
             ).fetchone()
         return dict(row) if row else None
 
@@ -300,6 +335,16 @@ class RunStateRepository:
                 record.content_hash,
                 record.root_scope_used,
                 record.inventory_timestamp,
+                record.account_mode,
+                record.namespace_id,
+                record.namespace_type,
+                record.namespace_name,
+                record.member_id,
+                record.member_email,
+                record.member_display_name,
+                record.canonical_source_path,
+                record.canonical_parent_path,
+                record.archive_bucket,
             )
             for record in records
         ]
@@ -310,10 +355,13 @@ class RunStateRepository:
                 """
                 INSERT INTO inventory_items (
                     run_id, item_type, full_path, path_lower, filename, parent_path, dropbox_id,
-                    size, server_modified, client_modified, content_hash, root_scope_used, inventory_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id, item_type, path_lower) DO UPDATE SET
+                    size, server_modified, client_modified, content_hash, root_scope_used, inventory_timestamp,
+                    account_mode, namespace_id, namespace_type, namespace_name, member_id, member_email,
+                    member_display_name, canonical_source_path, canonical_parent_path, archive_bucket
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, item_type, canonical_source_path) DO UPDATE SET
                     full_path = excluded.full_path,
+                    path_lower = excluded.path_lower,
                     filename = excluded.filename,
                     parent_path = excluded.parent_path,
                     dropbox_id = excluded.dropbox_id,
@@ -322,22 +370,31 @@ class RunStateRepository:
                     client_modified = excluded.client_modified,
                     content_hash = excluded.content_hash,
                     root_scope_used = excluded.root_scope_used,
-                    inventory_timestamp = excluded.inventory_timestamp
+                    inventory_timestamp = excluded.inventory_timestamp,
+                    account_mode = excluded.account_mode,
+                    namespace_id = excluded.namespace_id,
+                    namespace_type = excluded.namespace_type,
+                    namespace_name = excluded.namespace_name,
+                    member_id = excluded.member_id,
+                    member_email = excluded.member_email,
+                    member_display_name = excluded.member_display_name,
+                    canonical_parent_path = excluded.canonical_parent_path,
+                    archive_bucket = excluded.archive_bucket
                 """,
                 rows,
             )
             self._conn.commit()
         return len(rows)
 
-    def delete_inventory_items_for_root(self, run_id: str, root_path: str) -> None:
+    def delete_inventory_items_for_root(self, run_id: str, root_key: str) -> None:
         with self._lock:
             self._conn.execute(
                 "DELETE FROM inventory_items WHERE run_id = ? AND root_scope_used = ?",
-                (run_id, root_path),
+                (run_id, root_key),
             )
             self._conn.execute(
-                "DELETE FROM inventory_checkpoints WHERE run_id = ? AND root_path = ?",
-                (run_id, root_path),
+                "DELETE FROM inventory_checkpoints WHERE run_id = ? AND root_key = ?",
+                (run_id, root_key),
             )
             self._conn.commit()
 
@@ -347,7 +404,7 @@ class RunStateRepository:
         if item_type is not None:
             query += " AND item_type = ?"
             params.append(item_type)
-        query += " ORDER BY full_path"
+        query += " ORDER BY canonical_source_path"
         with self._lock:
             cursor = self._conn.execute(query, tuple(params))
             while True:
@@ -379,9 +436,20 @@ class RunStateRepository:
                 record.client_modified,
                 record.content_hash,
                 record.planned_archive_path,
+                record.archive_canonical_path,
                 record.match_reason,
                 record.filter_timestamp,
                 record.parent_path,
+                record.account_mode,
+                record.namespace_id,
+                record.namespace_type,
+                record.namespace_name,
+                record.member_id,
+                record.member_email,
+                record.member_display_name,
+                record.canonical_source_path,
+                record.canonical_parent_path,
+                record.archive_bucket,
             )
             for record in rows
         ]
@@ -389,7 +457,9 @@ class RunStateRepository:
             (
                 record.filter_run_id,
                 record.original_path,
+                record.canonical_source_path,
                 record.planned_archive_path,
+                record.archive_canonical_path,
                 record.dropbox_id,
                 record.size,
                 record.server_modified,
@@ -402,6 +472,15 @@ class RunStateRepository:
                 None,
                 record.filename,
                 record.parent_path,
+                record.account_mode,
+                record.namespace_id,
+                record.namespace_type,
+                record.namespace_name,
+                record.member_id,
+                record.member_email,
+                record.member_display_name,
+                record.canonical_parent_path,
+                record.archive_bucket,
                 mode,
             )
             for record in rows
@@ -412,9 +491,12 @@ class RunStateRepository:
                 INSERT INTO matched_files (
                     run_id, original_path, path_lower, filename, dropbox_id, size,
                     server_modified, client_modified, content_hash, planned_archive_path,
-                    match_reason, filter_timestamp, parent_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id, original_path) DO UPDATE SET
+                    archive_canonical_path, match_reason, filter_timestamp, parent_path,
+                    account_mode, namespace_id, namespace_type, namespace_name, member_id,
+                    member_email, member_display_name, canonical_source_path, canonical_parent_path, archive_bucket
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, canonical_source_path) DO UPDATE SET
+                    original_path = excluded.original_path,
                     path_lower = excluded.path_lower,
                     filename = excluded.filename,
                     dropbox_id = excluded.dropbox_id,
@@ -423,20 +505,32 @@ class RunStateRepository:
                     client_modified = excluded.client_modified,
                     content_hash = excluded.content_hash,
                     planned_archive_path = excluded.planned_archive_path,
+                    archive_canonical_path = excluded.archive_canonical_path,
                     match_reason = excluded.match_reason,
                     filter_timestamp = excluded.filter_timestamp,
-                    parent_path = excluded.parent_path
+                    parent_path = excluded.parent_path,
+                    account_mode = excluded.account_mode,
+                    namespace_id = excluded.namespace_id,
+                    namespace_type = excluded.namespace_type,
+                    namespace_name = excluded.namespace_name,
+                    member_id = excluded.member_id,
+                    member_email = excluded.member_email,
+                    member_display_name = excluded.member_display_name,
+                    canonical_parent_path = excluded.canonical_parent_path,
+                    archive_bucket = excluded.archive_bucket
                 """,
                 matched_rows,
             )
             self._conn.executemany(
                 """
                 INSERT INTO copy_jobs (
-                    run_id, original_path, archive_path, dropbox_id, size, server_modified,
-                    client_modified, content_hash, status, status_detail, attempt_count,
-                    first_attempt_at, last_attempt_at, filename, parent_path, mode
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id, original_path) DO NOTHING
+                    run_id, original_path, canonical_source_path, archive_path, archive_canonical_path,
+                    dropbox_id, size, server_modified, client_modified, content_hash, status, status_detail,
+                    attempt_count, first_attempt_at, last_attempt_at, filename, parent_path, account_mode,
+                    namespace_id, namespace_type, namespace_name, member_id, member_email,
+                    member_display_name, canonical_parent_path, archive_bucket, mode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, canonical_source_path) DO NOTHING
                 """,
                 job_rows,
             )
@@ -446,7 +540,7 @@ class RunStateRepository:
     def iter_matched_files(self, run_id: str) -> Iterable[dict[str, Any]]:
         with self._lock:
             cursor = self._conn.execute(
-                "SELECT * FROM matched_files WHERE run_id = ? ORDER BY original_path",
+                "SELECT * FROM matched_files WHERE run_id = ? ORDER BY canonical_source_path",
                 (run_id,),
             )
             while True:
@@ -456,20 +550,26 @@ class RunStateRepository:
                 for row in rows:
                     yield dict(row)
 
-    def fetch_copy_jobs(self, run_id: str, statuses: tuple[str, ...], limit: int, after_original_path: str | None = None) -> list[dict[str, Any]]:
+    def fetch_copy_jobs(
+        self,
+        run_id: str,
+        statuses: tuple[str, ...],
+        limit: int,
+        after_job_key: str | None = None,
+    ) -> list[dict[str, Any]]:
         placeholders = ",".join("?" for _ in statuses)
         params: list[Any] = [run_id, *statuses]
         after_clause = ""
-        if after_original_path is not None:
-            after_clause = " AND original_path > ?"
-            params.append(after_original_path)
+        if after_job_key is not None:
+            after_clause = " AND canonical_source_path > ?"
+            params.append(after_job_key)
         params.append(limit)
         with self._lock:
             rows = self._conn.execute(
                 f"""
                 SELECT * FROM copy_jobs
                 WHERE run_id = ? AND status IN ({placeholders}) {after_clause}
-                ORDER BY original_path
+                ORDER BY canonical_source_path
                 LIMIT ?
                 """,
                 tuple(params),
@@ -479,7 +579,7 @@ class RunStateRepository:
     def iter_all_copy_jobs(self, run_id: str) -> Iterable[dict[str, Any]]:
         with self._lock:
             cursor = self._conn.execute(
-                "SELECT * FROM copy_jobs WHERE run_id = ? ORDER BY original_path",
+                "SELECT * FROM copy_jobs WHERE run_id = ? ORDER BY canonical_source_path",
                 (run_id,),
             )
             while True:
@@ -506,7 +606,7 @@ class RunStateRepository:
     def update_copy_job_status(
         self,
         run_id: str,
-        original_path: str,
+        canonical_source_path: str,
         *,
         status: str,
         status_detail: str,
@@ -514,23 +614,31 @@ class RunStateRepository:
         first_attempt_at: str | None = None,
         last_attempt_at: str | None = None,
         archive_path: str | None = None,
+        archive_canonical_path: str | None = None,
     ) -> None:
         with self._lock:
             current = self._conn.execute(
-                "SELECT attempt_count, first_attempt_at, archive_path FROM copy_jobs WHERE run_id = ? AND original_path = ?",
-                (run_id, original_path),
+                """
+                SELECT attempt_count, first_attempt_at, archive_path, archive_canonical_path
+                FROM copy_jobs
+                WHERE run_id = ? AND canonical_source_path = ?
+                """,
+                (run_id, canonical_source_path),
             ).fetchone()
             if current is None:
                 return
             next_attempt_count = attempt_count if attempt_count is not None else current["attempt_count"]
             first_attempt_value = first_attempt_at if first_attempt_at is not None else current["first_attempt_at"]
             archive_value = archive_path if archive_path is not None else current["archive_path"]
+            archive_canonical_value = (
+                archive_canonical_path if archive_canonical_path is not None else current["archive_canonical_path"]
+            )
             self._conn.execute(
                 """
                 UPDATE copy_jobs
                 SET status = ?, status_detail = ?, attempt_count = ?, first_attempt_at = ?,
-                    last_attempt_at = ?, archive_path = ?
-                WHERE run_id = ? AND original_path = ?
+                    last_attempt_at = ?, archive_path = ?, archive_canonical_path = ?
+                WHERE run_id = ? AND canonical_source_path = ?
                 """,
                 (
                     status,
@@ -539,8 +647,9 @@ class RunStateRepository:
                     first_attempt_value,
                     last_attempt_at,
                     archive_value,
+                    archive_canonical_value,
                     run_id,
-                    original_path,
+                    canonical_source_path,
                 ),
             )
             self._conn.commit()
@@ -553,6 +662,14 @@ class RunStateRepository:
             ).fetchone()["count"]
             matched_total = self._conn.execute(
                 "SELECT COUNT(*) AS count FROM matched_files WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()["count"]
+            namespace_total = self._conn.execute(
+                "SELECT COUNT(DISTINCT COALESCE(namespace_id, 'personal')) AS count FROM inventory_items WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()["count"]
+            member_total = self._conn.execute(
+                "SELECT COUNT(DISTINCT member_id) AS count FROM inventory_items WHERE run_id = ? AND member_id IS NOT NULL",
                 (run_id,),
             ).fetchone()["count"]
             status_rows = self._conn.execute(
@@ -570,6 +687,8 @@ class RunStateRepository:
             "files_copied": 0,
             "files_skipped": 0,
             "files_failed": 0,
+            "namespaces_scanned": int(namespace_total),
+            "members_covered": int(member_total),
         }
         for row in status_rows:
             status = row["status"]
@@ -578,7 +697,7 @@ class RunStateRepository:
                 counters["files_copied"] += count
             elif status.startswith("skipped"):
                 counters["files_skipped"] += count
-            elif status == "failed":
+            elif status in ("failed", "blocked_precondition"):
                 counters["files_failed"] += count
         return counters
 
@@ -587,17 +706,17 @@ class RunStateRepository:
             rows = self._conn.execute(
                 """
                 SELECT
-                    parent_path AS folder_path,
+                    canonical_parent_path AS folder_path,
                     COUNT(*) AS file_count,
                     COALESCE(SUM(COALESCE(size, 0)), 0) AS total_size,
                     COUNT(*) AS matched_count,
                     SUM(CASE WHEN status = 'copied' THEN 1 ELSE 0 END) AS copied_count,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN status IN ('failed', 'blocked_precondition') THEN 1 ELSE 0 END) AS failed_count,
                     SUM(CASE WHEN status LIKE 'skipped%' THEN 1 ELSE 0 END) AS skipped_count
                 FROM copy_jobs
                 WHERE run_id = ?
-                GROUP BY parent_path
-                ORDER BY parent_path
+                GROUP BY canonical_parent_path
+                ORDER BY canonical_parent_path
                 """,
                 (run_id,),
             ).fetchall()
@@ -627,7 +746,7 @@ class RunStateRepository:
                 SELECT original_path, archive_path, status_detail
                 FROM copy_jobs
                 WHERE run_id = ? AND status {comparator} ?
-                ORDER BY original_path
+                ORDER BY canonical_source_path
                 LIMIT ?
                 """,
                 (run_id, prefix, limit),
@@ -653,4 +772,15 @@ class RunStateRepository:
                 last_attempt_at=row["last_attempt_at"],
                 filename=row["filename"],
                 parent_path=row["parent_path"],
+                account_mode=row["account_mode"],
+                namespace_id=row["namespace_id"],
+                namespace_type=row["namespace_type"],
+                namespace_name=row["namespace_name"],
+                member_id=row["member_id"],
+                member_email=row["member_email"],
+                member_display_name=row["member_display_name"],
+                canonical_source_path=row["canonical_source_path"],
+                archive_canonical_path=row["archive_canonical_path"],
+                canonical_parent_path=row["canonical_parent_path"],
+                archive_bucket=row["archive_bucket"],
             )

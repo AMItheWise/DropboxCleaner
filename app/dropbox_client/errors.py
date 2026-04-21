@@ -39,3 +39,7 @@ class CursorResetError(PermanentDropboxError):
 
 class ConflictPolicyAbortError(PermanentDropboxError):
     """Raised when the configured conflict policy requires stopping the run."""
+
+
+class BlockedPreconditionError(PermanentDropboxError):
+    """A required team/admin precondition could not be satisfied safely."""
