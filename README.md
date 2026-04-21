@@ -16,7 +16,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 - Personal mode and team-admin mode
 - Full metadata traversal with pagination
 - Namespace-aware team inventory and resumable copy state
-- Cutoff filtering based on `server_modified`
+- Cutoff filtering based on `server_modified`, `client_modified`, or the oldest of both
 - Dry-run mode with planned manifests
 - Safe copy-first archive staging inside Dropbox
 - SQLite-backed resumability, logs, verification, and summaries
@@ -130,6 +130,7 @@ py -3.11 -m app.cli.main dry-run ^
   --use-saved-auth ^
   --source-root /Team ^
   --cutoff-date 2020-05-01 ^
+  --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
 ```
@@ -141,6 +142,7 @@ py -3.11 -m app.cli.main dry-run ^
   --account-mode team_admin ^
   --use-saved-auth ^
   --team-coverage-preset all_team_content ^
+  --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
 ```
@@ -152,8 +154,25 @@ py -3.11 -m app.cli.main copy ^
   --account-mode team_admin ^
   --use-saved-auth ^
   --team-coverage-preset all_team_content ^
+  --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
+```
+
+### Cutoff Date Field
+
+The default cutoff field is `server_modified`, which is the Dropbox API timestamp for when Dropbox last changed the file on the server. This is the safest audit default.
+
+If Dropbox's web UI shows old file dates but a run does not match those files, check `inventory_full.csv`. If `server_modified` is recent and `client_modified` is old, rerun with `client_modified` or `oldest_modified`.
+
+```powershell
+py -3.11 -m app.cli.main dry-run ^
+  --account-mode team_admin ^
+  --use-saved-auth ^
+  --team-coverage-preset all_team_content ^
+  --cutoff-date 2020-05-01 ^
+  --date-filter-field oldest_modified ^
+  --archive-root /Archive_PreMay2020
 ```
 
 ### Resume
@@ -198,6 +217,10 @@ py -3.11 -m app.cli.main verify ^
 ### Team copy run says `no_write_permission`
 
 Some Dropbox team-space policies block API-created top-level folders even for admin-authorized apps. If a copy run reports `blocked_precondition` or `no_write_permission` while creating the archive folder, create the archive folder manually in Dropbox or choose an existing team-space folder where the authenticated admin/app has editor access. Then use Resume; originals are not deleted or moved.
+
+### Files appear in inventory but are not matched
+
+The filter uses `server_modified` by default. Imported or copied files can have an old `client_modified` date while Dropbox reports a recent `server_modified` date. In that case, choose `client_modified` or `oldest_modified` in the GUI's Date Filter Field, or pass `--date-filter-field oldest_modified` in the CLI.
 
 ## Outputs
 

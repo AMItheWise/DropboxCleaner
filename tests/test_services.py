@@ -193,6 +193,92 @@ def test_filter_by_cutoff_date(tmp_path: Path) -> None:
     rows = list(repository.iter_matched_files(run_context.run_id))
     assert matched == 1
     assert rows[0]["planned_archive_path"] == "/Archive_PreMay2020/Old/report.pdf"
+    assert rows[0]["match_reason"] == "server_modified_before_2020-05-01"
+
+
+def test_filter_by_client_modified_date(tmp_path: Path) -> None:
+    run_context, repository = make_run_context(tmp_path, "dry_run")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": "/Screenshots/Screenshot 2015.png",
+                "dropbox_id": "id:screenshot",
+                "size": 100,
+                "server_modified": "2026-04-20T14:51:21Z",
+                "client_modified": "2015-01-04T09:13:35Z",
+                "content_hash": "hash-screenshot",
+            },
+        ],
+    )
+
+    matched = FilterService(repository, make_logger("filter.client_modified")).run(
+        run_context=run_context,
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="dry_run",
+            cutoff_date="2020-05-01",
+            date_filter_field="client_modified",
+        ),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020"),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+
+    rows = list(repository.iter_matched_files(run_context.run_id))
+    assert matched == 1
+    assert rows[0]["original_path"] == "/Screenshots/Screenshot 2015.png"
+    assert rows[0]["match_reason"] == "client_modified_before_2020-05-01"
+
+
+def test_filter_by_oldest_modified_date(tmp_path: Path) -> None:
+    run_context, repository = make_run_context(tmp_path, "dry_run")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": "/Imported/old-camera-file.png",
+                "dropbox_id": "id:imported",
+                "size": 100,
+                "server_modified": "2026-04-20T14:51:21Z",
+                "client_modified": "2015-01-04T09:13:35Z",
+                "content_hash": "hash-imported",
+            },
+            {
+                "item_type": "file",
+                "full_path": "/Imported/new-file.png",
+                "dropbox_id": "id:new",
+                "size": 101,
+                "server_modified": "2026-04-20T14:51:21Z",
+                "client_modified": "2026-04-20T14:51:21Z",
+                "content_hash": "hash-new",
+            },
+        ],
+    )
+
+    matched = FilterService(repository, make_logger("filter.oldest_modified")).run(
+        run_context=run_context,
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="dry_run",
+            cutoff_date="2020-05-01",
+            date_filter_field="oldest_modified",
+        ),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020"),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+
+    rows = list(repository.iter_matched_files(run_context.run_id))
+    assert matched == 1
+    assert rows[0]["original_path"] == "/Imported/old-camera-file.png"
+    assert rows[0]["match_reason"] == "oldest_modified_before_2020-05-01"
 
 
 def test_archive_path_mapping() -> None:

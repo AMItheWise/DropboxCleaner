@@ -10,6 +10,7 @@ AuthMethod = Literal["oauth_pkce", "refresh_token", "access_token"]
 RunMode = Literal["inventory_only", "dry_run", "copy_run"]
 ConflictPolicy = Literal["safe_skip", "abort_run"]
 TeamCoveragePreset = Literal["all_team_content", "team_owned_only"]
+DateFilterField = Literal["server_modified", "client_modified", "oldest_modified"]
 
 DEFAULT_PERSONAL_SCOPES = (
     "account_info.read",
@@ -56,6 +57,7 @@ class AuthConfig:
 class JobConfig:
     source_roots: list[str]
     cutoff_date: str = "2020-05-01"
+    date_filter_field: DateFilterField = "server_modified"
     archive_root: str = "/Archive_PreMay2020"
     output_dir: Path = Path("outputs")
     state_db_path: Path | None = None

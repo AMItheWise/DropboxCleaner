@@ -71,6 +71,7 @@ class DropboxCleanerApp:
 
         self.source_root_var = StringVar()
         self.cutoff_date_var = StringVar(value="2020-05-01")
+        self.date_filter_field_var = StringVar(value="server_modified")
         self.archive_root_var = StringVar(value="/Archive_PreMay2020")
         self.output_dir_var = StringVar(value=str(Path("outputs").resolve()))
         self.mode_var = StringVar(value="dry_run")
@@ -199,34 +200,42 @@ class DropboxCleanerApp:
         ttk.Label(settings_frame, text="Cutoff Date").grid(row=0, column=0, sticky="w")
         ttk.Entry(settings_frame, textvariable=self.cutoff_date_var).grid(row=0, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(settings_frame, text="Archive Folder").grid(row=1, column=0, sticky="w")
-        ttk.Entry(settings_frame, textvariable=self.archive_root_var).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(settings_frame, text="Date Filter Field").grid(row=1, column=0, sticky="w")
+        ttk.Combobox(
+            settings_frame,
+            textvariable=self.date_filter_field_var,
+            values=("server_modified", "client_modified", "oldest_modified"),
+            state="readonly",
+        ).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(settings_frame, text="Output Directory").grid(row=2, column=0, sticky="w")
+        ttk.Label(settings_frame, text="Archive Folder").grid(row=2, column=0, sticky="w")
+        ttk.Entry(settings_frame, textvariable=self.archive_root_var).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+
+        ttk.Label(settings_frame, text="Output Directory").grid(row=3, column=0, sticky="w")
         output_row = ttk.Frame(settings_frame)
-        output_row.grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        output_row.grid(row=3, column=1, sticky="ew", padx=8, pady=4)
         ttk.Entry(output_row, textvariable=self.output_dir_var).pack(side=LEFT, fill=BOTH, expand=True)
         ttk.Button(output_row, text="Browse", command=self.choose_output_dir).pack(side=LEFT, padx=(8, 0))
 
-        ttk.Label(settings_frame, text="Mode").grid(row=3, column=0, sticky="w")
+        ttk.Label(settings_frame, text="Mode").grid(row=4, column=0, sticky="w")
         ttk.Combobox(
             settings_frame,
             textvariable=self.mode_var,
             values=list(MODE_LABELS.keys()),
             state="readonly",
-        ).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
+        ).grid(row=4, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(settings_frame, text="Team Coverage").grid(row=4, column=0, sticky="w")
+        ttk.Label(settings_frame, text="Team Coverage").grid(row=5, column=0, sticky="w")
         self.team_coverage_box = ttk.Combobox(
             settings_frame,
             textvariable=self.team_coverage_var,
             values=list(TEAM_COVERAGE_LABELS.keys()),
             state="readonly",
         )
-        self.team_coverage_box.grid(row=4, column=1, sticky="ew", padx=8, pady=4)
+        self.team_coverage_box.grid(row=5, column=1, sticky="ew", padx=8, pady=4)
 
         ttk.Label(settings_frame, textvariable=self.job_setup_hint_var, foreground="#1d3557", wraplength=640, justify=LEFT).grid(
-            row=5,
+            row=6,
             column=0,
             columnspan=2,
             sticky="w",
@@ -350,7 +359,8 @@ class DropboxCleanerApp:
         if is_team_admin:
             self.job_setup_hint_var.set(
                 "Team Admin mode inventories the whole Dropbox team from a single admin-authorized app. "
-                "Source roots are not used in this mode; coverage is controlled by the Team Coverage preset."
+                "Source roots are not used in this mode; coverage is controlled by the Team Coverage preset. "
+                "Use Date Filter Field = client_modified or oldest_modified when Dropbox shows old file dates but server_modified is recent."
             )
             self.connection_help_var.set(
                 "Connection Help\n"
@@ -364,7 +374,8 @@ class DropboxCleanerApp:
                 self.source_roots_listbox.insert(END, "/")
         else:
             self.job_setup_hint_var.set(
-                "Personal mode inventories the selected Dropbox roots and stages server-side copies into a dedicated archive folder."
+                "Personal mode inventories the selected Dropbox roots and stages server-side copies into a dedicated archive folder. "
+                "Use Date Filter Field = client_modified or oldest_modified when Dropbox shows old file dates but server_modified is recent."
             )
             self.connection_help_var.set(
                 "Connection Help\n"
@@ -592,6 +603,7 @@ class DropboxCleanerApp:
         return JobConfig(
             source_roots=source_roots or ["/"],
             cutoff_date=self.cutoff_date_var.get().strip(),
+            date_filter_field=self.date_filter_field_var.get(),  # type: ignore[arg-type]
             archive_root=self.archive_root_var.get().strip(),
             output_dir=Path(self.output_dir_var.get()).expanduser(),
             mode=mode,  # type: ignore[arg-type]

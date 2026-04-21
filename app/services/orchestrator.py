@@ -119,6 +119,7 @@ class RunOrchestrator:
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
             cutoff_date=config_payload["cutoff_date"],
+            date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
             output_dir=Path(run_row["base_output_dir"]),
             state_db_path=state_db_path,
@@ -170,6 +171,7 @@ class RunOrchestrator:
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
             cutoff_date=config_payload["cutoff_date"],
+            date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
             output_dir=Path(run_row["base_output_dir"]),
             state_db_path=state_db_path,

@@ -79,6 +79,12 @@ def add_auth_args(parser: argparse.ArgumentParser) -> None:
 def add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-root", action="append", dest="source_roots", help="Dropbox root path to include in personal mode.")
     parser.add_argument("--cutoff-date", default="2020-05-01", help="Cutoff date in YYYY-MM-DD format.")
+    parser.add_argument(
+        "--date-filter-field",
+        choices=("server_modified", "client_modified", "oldest_modified"),
+        default=None,
+        help="Timestamp field used for cutoff filtering. Default: server_modified.",
+    )
     parser.add_argument("--archive-root", default="/Archive_PreMay2020", help="Archive root folder in Dropbox.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"), help="Base output directory.")
     parser.add_argument("--job-state", type=Path, help="Reserved for resuming an existing run.")
@@ -226,6 +232,7 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
     return JobConfig(
         source_roots=list(source_roots),
         cutoff_date=getattr(args, "cutoff_date", None) or job_section.get("cutoff_date", "2020-05-01"),
+        date_filter_field=getattr(args, "date_filter_field", None) or job_section.get("date_filter_field", "server_modified"),
         archive_root=getattr(args, "archive_root", None) or job_section.get("archive_root", "/Archive_PreMay2020"),
         output_dir=getattr(args, "output_dir", None) or Path(job_section.get("output_dir", "outputs")),
         mode=mode,  # type: ignore[arg-type]

@@ -17,6 +17,9 @@ job:
   source_roots:
     - /
   cutoff_date: "2020-05-01"
+  # Options: server_modified, client_modified, oldest_modified.
+  # Use client_modified/oldest_modified when Dropbox shows old file dates but API server_modified is recent.
+  date_filter_field: "server_modified"
   archive_root: "/Archive_PreMay2020"
   output_dir: "./outputs"
   batch_size: 500

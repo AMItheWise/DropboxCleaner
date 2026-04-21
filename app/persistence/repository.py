@@ -179,6 +179,7 @@ class RunStateRepository:
         payload = {
             "source_roots": job_config.source_roots,
             "cutoff_date": job_config.cutoff_date,
+            "date_filter_field": job_config.date_filter_field,
             "archive_root": job_config.archive_root,
             "batch_size": job_config.batch_size,
             "conflict_policy": job_config.conflict_policy,
