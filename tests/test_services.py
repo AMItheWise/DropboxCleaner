@@ -330,6 +330,24 @@ def test_team_archive_sharing_switches_to_shared_folder_namespace() -> None:
     assert calls["mount"] == [("member", "sf:archive")]
 
 
+def test_metadata_client_uses_ns_path_for_namespace_root() -> None:
+    adapter = DropboxAdapter.__new__(DropboxAdapter)
+    adapter._auth_config = AuthConfig(method="access_token", account_mode="team_admin", access_token="token")
+    class MetadataClient:
+        def with_path_root(self, path_root):
+            return self
+
+    metadata_client = MetadataClient()
+    adapter._metadata_client = lambda path: metadata_client
+    adapter.get_team_discovery = lambda: make_team_discovery()
+
+    client, target, namespace_id = adapter._metadata_client_and_target("ns:ns-root")
+
+    assert client is metadata_client
+    assert target == "ns:ns-root"
+    assert namespace_id == "ns-root"
+
+
 def test_no_write_permission_maps_to_blocked_precondition() -> None:
     adapter = DropboxAdapter(AuthConfig(method="access_token", access_token="token"), make_logger("adapter.no_write"))
     try:

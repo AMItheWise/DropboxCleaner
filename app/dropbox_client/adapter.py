@@ -704,7 +704,7 @@ class DropboxAdapter:
         if self._auth_config.account_mode == "team_admin" and namespace_id:
             discovery = self.get_team_discovery()
             client = client.with_path_root(path_root_for_namespace(namespace_id, discovery.root_namespace_id))
-        target = sdk_path(relative_path)
+        target = namespace_relative_path(namespace_id, relative_path) if namespace_id and relative_path == "/" else sdk_path(relative_path)
         return client, target, namespace_id
 
     def _copy_client(self, *, admin: bool, member_id: str | None = None) -> dropbox.Dropbox:
