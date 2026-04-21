@@ -272,7 +272,7 @@ class FakeDropboxAdapter:
             raise exc
         return self.backend.list_page(normalize_dropbox_path(path), limit, namespace_id=namespace_id)
 
-    def list_folder_continue(self, cursor: str) -> ListingPage:
+    def list_folder_continue(self, cursor: str, *, namespace_id: str | None = None) -> ListingPage:
         return self.backend.list_continue(cursor)
 
     def validate_file_listing_access(self) -> None:

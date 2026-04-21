@@ -31,6 +31,12 @@ from app.utils.paths import (
 from app.utils.time import isoformat_utc
 
 
+def path_root_for_namespace(namespace_id: str, root_namespace_id: str | None) -> common.PathRoot:
+    if namespace_id == root_namespace_id:
+        return common.PathRoot.root(namespace_id)
+    return common.PathRoot.namespace_id(namespace_id)
+
+
 class DropboxAdapter:
     def __init__(self, auth_config: AuthConfig, logger: logging.Logger, timeout: int = 100) -> None:
         self._auth_config = auth_config
@@ -300,12 +306,11 @@ class DropboxAdapter:
         except Exception as exc:  # noqa: BLE001
             self._raise_mapped(exc)
 
-    def list_folder_continue(self, cursor: str) -> ListingPage:
+    def list_folder_continue(self, cursor: str, *, namespace_id: str | None = None) -> ListingPage:
         try:
             client_info = self._cursor_clients.get(cursor)
             if client_info is None:
-                client = self._default_listing_continue_client()
-                namespace_id = None
+                client = self._listing_client(namespace_id)
             else:
                 client, namespace_id = client_info
             result = client.files_list_folder_continue(cursor)
@@ -442,11 +447,8 @@ class DropboxAdapter:
         assert self._team_client is not None
         client = self._team_client.as_admin(admin_member_id)
         if namespace_id:
-            client = client.with_path_root(common.PathRoot.root(namespace_id))
+            client = client.with_path_root(path_root_for_namespace(namespace_id, discovery.root_namespace_id))
         return client
-
-    def _default_listing_continue_client(self) -> dropbox.Dropbox:
-        return self._listing_client(None)
 
     def _metadata_client(self, path: str) -> dropbox.Dropbox:
         if self._auth_config.account_mode != "team_admin":

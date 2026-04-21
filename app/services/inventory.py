@@ -122,7 +122,7 @@ class DropboxInventoryService:
         if checkpoint and checkpoint["cursor"]:
             page = retry_call(
                 operation_name=f"list_folder_continue({root.root_key})",
-                func=lambda: adapter.list_folder_continue(checkpoint["cursor"]),
+                func=lambda: adapter.list_folder_continue(checkpoint["cursor"], namespace_id=root.namespace_id),
                 logger=self._logger,
                 retry_settings=job_config.retry,
                 is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
@@ -182,7 +182,7 @@ class DropboxInventoryService:
 
             page = retry_call(
                 operation_name=f"list_folder_continue({root.root_key})",
-                func=lambda: adapter.list_folder_continue(page.cursor),
+                func=lambda: adapter.list_folder_continue(page.cursor, namespace_id=root.namespace_id),
                 logger=self._logger,
                 retry_settings=job_config.retry,
                 is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),

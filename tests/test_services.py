@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from dropbox import exceptions as dbx_exceptions
 
-from app.dropbox_client.adapter import DropboxAdapter
+from app.dropbox_client.adapter import DropboxAdapter, path_root_for_namespace
 from app.dropbox_client.auth import AuthManager
 from app.dropbox_client.errors import ConflictPolicyAbortError, TemporaryDropboxError
 from app.models.config import AuthConfig, JobConfig, OutputPaths, RetrySettings, RunContext
@@ -210,6 +210,16 @@ def test_team_archive_path_mapping() -> None:
         )
         == "/Archive_PreMay2020/member_homes/alice-example.com/Designs/file.pdf"
     )
+
+
+def test_team_path_root_uses_arbitrary_namespace_for_non_root_namespaces() -> None:
+    root_path_root = path_root_for_namespace("ns-root", "ns-root")
+    child_path_root = path_root_for_namespace("ns-shared", "ns-root")
+
+    assert root_path_root.is_root()
+    assert root_path_root.get_root() == "ns-root"
+    assert child_path_root.is_namespace_id()
+    assert child_path_root.get_namespace_id() == "ns-shared"
 
 
 def test_archive_destination_exclusion(tmp_path: Path) -> None:
