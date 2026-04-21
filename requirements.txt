@@ -2,3 +2,6 @@ dropbox>=12.0.2,<13
 keyring>=25.0.0,<26
 platformdirs>=4.0.0,<5
 PyYAML>=6.0.0,<7
+customtkinter>=5.2.2,<6
+tkcalendar>=1.6.1,<2
+Pillow>=10.0.0,<12

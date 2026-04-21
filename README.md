@@ -11,7 +11,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 ## Highlights
 
-- Tkinter desktop UI plus CLI
+- Consumer-friendly guided desktop UI plus CLI
 - Shared backend for GUI and CLI
 - Personal mode and team-admin mode
 - Full metadata traversal with pagination
@@ -90,10 +90,35 @@ py -3.11 -m pip install -r requirements-dev.txt
 py -3.11 -m app
 ```
 
+The GUI walks non-technical users through:
+
+- choosing `Personal Dropbox` or `Team Dropbox`
+- connecting with OAuth
+- choosing a cutoff date with a calendar
+- browsing Dropbox folders for archive/source paths
+- previewing or copying archive files
+- reviewing visual results, issues, and output files
+
 ## Run The CLI
 
 ```powershell
 py -3.11 -m app.cli.main --help
+```
+
+## Build Double-Click Apps
+
+Packaging instructions are in [docs/PACKAGING.md](docs/PACKAGING.md).
+
+Windows:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+macOS:
+
+```bash
+./scripts/build_macos.sh
 ```
 
 ## Authentication
