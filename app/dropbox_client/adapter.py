@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import replace
 from typing import Any
 
 import dropbox
-from dropbox import common, files, team
+from dropbox import common, files, sharing, team
 from dropbox import exceptions as dbx_exceptions
 
 from app.dropbox_client.errors import (
@@ -27,6 +28,7 @@ from app.utils.paths import (
     normalize_dropbox_path,
     parent_path,
     sdk_path,
+    split_namespace_relative_path,
 )
 from app.utils.time import isoformat_utc
 
@@ -238,23 +240,59 @@ class DropboxAdapter:
         if discovery.team_model == "team_space":
             if not discovery.root_namespace_id:
                 raise BlockedPreconditionError("Team space root namespace was not returned by Dropbox.")
-            archive_path = namespace_relative_path(discovery.root_namespace_id, archive_root)
-            if create:
-                self.create_folder_if_missing(archive_path)
-            else:
-                metadata = self.get_metadata(archive_path)
-                if metadata is None:
+            archive_namespace_id, archive_relative_path, archive_location_label = self._team_space_archive_location(
+                discovery,
+                archive_root,
+            )
+            archive_path = namespace_relative_path(archive_namespace_id, archive_relative_path)
+            metadata = self.get_metadata(archive_path)
+            if metadata is not None:
+                if metadata.item_type != "folder":
                     return replace(
                         discovery,
-                        archive_namespace_id=discovery.root_namespace_id,
+                        archive_namespace_id=None,
                         archive_provisioned=False,
-                        archive_status_detail=f"Archive root {archive_root} does not exist yet.",
+                        archive_status_detail=f"Archive path {archive_root} already exists but is not a folder.",
                     )
-            return replace(
+                return self._finalize_team_space_archive_destination(
+                    discovery,
+                    archive_root=archive_root,
+                    archive_path=archive_path,
+                    archive_namespace_id=archive_namespace_id,
+                    archive_relative_path=archive_relative_path,
+                    archive_location_label=archive_location_label,
+                    create=create,
+                    reused=True,
+                )
+            if not create:
+                return replace(
+                    discovery,
+                    archive_namespace_id=archive_namespace_id,
+                    archive_namespace_root_path=archive_relative_path,
+                    archive_provisioned=False,
+                    archive_status_detail=f"Archive root {archive_root} does not exist yet.",
+                )
+            try:
+                self.create_folder_if_missing(archive_path)
+            except BlockedPreconditionError as exc:
+                detail = self._archive_write_blocked_detail(archive_root, exc)
+                self._logger.warning(detail, extra={"phase": "team_discovery"})
+                return replace(
+                    discovery,
+                    archive_namespace_id=archive_namespace_id,
+                    archive_namespace_root_path=archive_relative_path,
+                    archive_provisioned=False,
+                    archive_status_detail=detail,
+                )
+            return self._finalize_team_space_archive_destination(
                 discovery,
-                archive_namespace_id=discovery.root_namespace_id,
-                archive_provisioned=True,
-                archive_status_detail=f"Using central archive at {archive_root} in the team space.",
+                archive_root=archive_root,
+                archive_path=archive_path,
+                archive_namespace_id=archive_namespace_id,
+                archive_relative_path=archive_relative_path,
+                archive_location_label=archive_location_label,
+                create=create,
+                reused=False,
             )
 
         archive_namespace = self._find_legacy_archive_namespace(archive_name)
@@ -321,22 +359,19 @@ class DropboxAdapter:
 
     def get_metadata(self, path: str) -> RemoteEntry | None:
         try:
-            client = self._metadata_client(path)
-            metadata = client.files_get_metadata(path if path.startswith("id:") or path.startswith("rev:") or path.startswith("ns:") else sdk_path(path))
+            client, target, namespace_id = self._metadata_client_and_target(path)
+            metadata = client.files_get_metadata(target)
         except Exception as exc:  # noqa: BLE001
             mapped = self._map_exception(exc)
             if isinstance(mapped, PathNotFoundError):
                 return None
             raise mapped from exc
-        namespace_id = self._namespace_id_from_path(path)
         return self._map_entry(metadata, namespace_id=namespace_id)
 
     def create_folder_if_missing(self, path: str) -> RemoteEntry | None:
         try:
-            client = self._metadata_client(path)
-            target = path if path.startswith("ns:") else sdk_path(path)
+            client, target, namespace_id = self._metadata_client_and_target(path)
             result = client.files_create_folder_v2(target, autorename=False)
-            namespace_id = self._namespace_id_from_path(path)
             return self._map_entry(result.metadata, namespace_id=namespace_id)
         except Exception as exc:  # noqa: BLE001
             mapped = self._map_exception(exc)
@@ -346,7 +381,15 @@ class DropboxAdapter:
                     return existing
             raise mapped from exc
 
-    def copy_file(self, source_path: str, destination_path: str, member_id: str | None = None) -> RemoteEntry:
+    def copy_file(
+        self,
+        source_path: str,
+        destination_path: str,
+        member_id: str | None = None,
+        *,
+        source_display_path: str | None = None,
+        destination_display_path: str | None = None,
+    ) -> RemoteEntry:
         try:
             client = self._copy_client(admin=True)
             result = client.files_copy_v2(
@@ -358,12 +401,23 @@ class DropboxAdapter:
             return self._map_entry(result.metadata, namespace_id=namespace_id)
         except Exception as exc:  # noqa: BLE001
             mapped = self._map_exception(exc)
-            if member_id and isinstance(mapped, (AuthenticationFailureError, PathNotFoundError)):
+            if member_id and self._should_retry_copy_as_member(mapped):
+                self._logger.info(
+                    "Admin-context copy was denied for %s -> %s. Retrying as team member %s.",
+                    source_path,
+                    destination_path,
+                    member_id,
+                    extra={"phase": "copy"},
+                )
                 try:
                     client = self._copy_client(admin=False, member_id=member_id)
                     result = client.files_copy_v2(
-                        source_path if source_path.startswith("ns:") else sdk_path(source_path),
-                        destination_path if destination_path.startswith("ns:") else sdk_path(destination_path),
+                        source_display_path if source_display_path is not None else source_path if source_path.startswith("ns:") else sdk_path(source_path),
+                        destination_display_path
+                        if destination_display_path is not None
+                        else destination_path
+                        if destination_path.startswith("ns:")
+                        else sdk_path(destination_path),
                         autorename=False,
                     )
                     namespace_id = self._namespace_id_from_path(destination_path)
@@ -425,6 +479,192 @@ class DropboxAdapter:
                 return {"namespace_id": namespace.namespace_id, "namespace_name": namespace.name}
         return None
 
+    def _finalize_team_space_archive_destination(
+        self,
+        discovery: TeamDiscoveryResult,
+        *,
+        archive_root: str,
+        archive_path: str,
+        archive_namespace_id: str,
+        archive_relative_path: str,
+        archive_location_label: str,
+        create: bool,
+        reused: bool,
+    ) -> TeamDiscoveryResult:
+        action = "existing central archive" if reused else "central archive"
+        detail = f"Using {action} at {archive_root} in {archive_location_label}."
+        if not create:
+            return replace(
+                discovery,
+                archive_namespace_id=archive_namespace_id,
+                archive_namespace_root_path=archive_relative_path,
+                archive_provisioned=True,
+                archive_status_detail=detail,
+            )
+        try:
+            shared_folder_id, member_count = self._share_archive_with_member_home_sources(archive_path, discovery)
+        except MissingScopeError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            blocked_detail = (
+                f"{detail} Dropbox refused to grant source members editor access to the archive folder. "
+                "Member-home server-side copies require the source member to be able to write to the archive folder. "
+                "Grant the active source members editor access to the archive folder in Dropbox, then rerun or resume. "
+                f"{exc}"
+            )
+            self._logger.warning(blocked_detail, extra={"phase": "team_discovery"})
+            return replace(
+                discovery,
+                archive_namespace_id=archive_namespace_id,
+                archive_namespace_root_path=archive_relative_path,
+                archive_provisioned=False,
+                archive_status_detail=blocked_detail,
+            )
+        if shared_folder_id:
+            return replace(
+                discovery,
+                archive_namespace_id=shared_folder_id,
+                archive_namespace_root_path="/",
+                archive_shared_folder_id=shared_folder_id,
+                archive_provisioned=True,
+                archive_status_detail=f"{detail} Shared archive write access with {member_count} active member-home source member(s).",
+            )
+        return replace(
+            discovery,
+            archive_namespace_id=archive_namespace_id,
+            archive_namespace_root_path=archive_relative_path,
+            archive_provisioned=True,
+            archive_status_detail=detail,
+        )
+
+    def _share_archive_with_member_home_sources(self, archive_path: str, discovery: TeamDiscoveryResult) -> tuple[str | None, int]:
+        members = sorted(
+            {
+                (root.member_id, root.member_email)
+                for root in discovery.traversal_roots
+                if root.archive_bucket == "member_homes" and root.member_email
+            }
+        )
+        if not members:
+            return None, 0
+        shared_folder_id = self._ensure_shared_folder_id(archive_path)
+        self._add_archive_folder_editors(shared_folder_id, members)
+        return shared_folder_id, len(members)
+
+    def _ensure_shared_folder_id(self, archive_path: str) -> str:
+        metadata = self.get_metadata(archive_path)
+        if metadata and metadata.shared_folder_id:
+            return metadata.shared_folder_id
+        client, target, _namespace_id = self._metadata_client_and_target(archive_path)
+        try:
+            launch = client.sharing_share_folder(target, force_async=False)
+        except Exception as exc:  # noqa: BLE001
+            if "already" in str(exc).casefold():
+                metadata = self.get_metadata(archive_path)
+                if metadata and metadata.shared_folder_id:
+                    return metadata.shared_folder_id
+            mapped = self._map_exception(exc)
+            if isinstance(mapped, MissingScopeError):
+                raise mapped from exc
+            raise BlockedPreconditionError(f"Could not share archive folder {archive_path}: {mapped}") from exc
+        return self._shared_folder_id_from_launch(client, launch)
+
+    def _shared_folder_id_from_launch(self, client: dropbox.Dropbox, launch: Any) -> str:
+        if launch.is_complete():
+            return launch.get_complete().shared_folder_id
+        if launch.is_async_job_id():
+            async_job_id = launch.get_async_job_id()
+            for _attempt in range(30):
+                status = client.sharing_check_share_job_status(async_job_id)
+                if status.is_complete():
+                    return status.get_complete().shared_folder_id
+                if status.is_failed():
+                    raise BlockedPreconditionError(f"Dropbox failed to share the archive folder: {status.get_failed()}")
+                time.sleep(1)
+        raise BlockedPreconditionError("Dropbox did not finish sharing the archive folder in time.")
+
+    def _add_archive_folder_editors(self, shared_folder_id: str, members: list[tuple[str | None, str | None]]) -> None:
+        client = self._copy_client(admin=True)
+        for member_id, email in members:
+            if not email:
+                continue
+            try:
+                client.sharing_add_folder_member(
+                    shared_folder_id,
+                    [
+                        sharing.AddMember(
+                            member=sharing.MemberSelector.email(email),
+                            access_level=sharing.AccessLevel.editor,
+                        )
+                    ],
+                    quiet=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                lowered = str(exc).casefold()
+                if "already" in lowered:
+                    continue
+                mapped = self._map_exception(exc)
+                if isinstance(mapped, MissingScopeError):
+                    raise mapped from exc
+                raise BlockedPreconditionError(
+                    f"Could not grant {email} editor access to archive folder {shared_folder_id}: {mapped}"
+                ) from exc
+            if member_id:
+                self._mount_archive_folder_for_member(shared_folder_id, member_id, email)
+            else:
+                self._logger.warning(
+                    "Could not mount archive folder %s for %s because Dropbox did not return a team member ID.",
+                    shared_folder_id,
+                    email,
+                    extra={"phase": "team_discovery"},
+                )
+
+    def _mount_archive_folder_for_member(self, shared_folder_id: str, member_id: str, email: str) -> None:
+        client = self._copy_client(admin=False, member_id=member_id)
+        try:
+            client.sharing_mount_folder(shared_folder_id)
+            self._logger.info(
+                "Mounted archive folder %s for %s.",
+                shared_folder_id,
+                email,
+                extra={"phase": "team_discovery"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            lowered = str(exc).casefold()
+            if "already_mounted" in lowered or "already mounted" in lowered:
+                return
+            mapped = self._map_exception(exc)
+            if isinstance(mapped, MissingScopeError):
+                raise mapped from exc
+            raise BlockedPreconditionError(
+                f"Could not mount archive folder {shared_folder_id} for {email}: {mapped}"
+            ) from exc
+
+    def _team_space_archive_location(self, discovery: TeamDiscoveryResult, archive_root: str) -> tuple[str, str, str]:
+        if not discovery.root_namespace_id:
+            raise BlockedPreconditionError("Team space root namespace was not returned by Dropbox.")
+        normalized = normalize_dropbox_path(archive_root)
+        parts = normalized.strip("/").split("/", 1)
+        top_level_name = parts[0] if parts and parts[0] else ""
+        if top_level_name:
+            matches = [
+                root
+                for root in discovery.traversal_roots
+                if root.namespace_id
+                and root.namespace_id != discovery.root_namespace_id
+                and root.namespace_name
+                and root.namespace_name.casefold() == top_level_name.casefold()
+            ]
+            if len(matches) == 1:
+                relative_path = normalize_dropbox_path(parts[1] if len(parts) > 1 else "/")
+                return matches[0].namespace_id or discovery.root_namespace_id, relative_path, f"mounted namespace {matches[0].namespace_name}"
+            if len(matches) > 1:
+                raise BlockedPreconditionError(
+                    f"Archive root {normalized} starts with {top_level_name}, but multiple team namespaces have that name. "
+                    "Choose a unique archive folder path or rename the duplicate team folders."
+                )
+        return discovery.root_namespace_id, normalized, "the team space"
+
     def _namespace_type_name(self, namespace_type: Any) -> str:
         if hasattr(namespace_type, "is_team_member_folder") and namespace_type.is_team_member_folder():
             return "team_member_folder"
@@ -455,6 +695,17 @@ class DropboxAdapter:
             assert self._client is not None
             return self._client
         return self._copy_client(admin=True)
+
+    def _metadata_client_and_target(self, path: str) -> tuple[dropbox.Dropbox, str, str | None]:
+        if path.startswith("id:") or path.startswith("rev:"):
+            return self._metadata_client(path), path, None
+        namespace_id, relative_path = split_namespace_relative_path(path)
+        client = self._metadata_client(path)
+        if self._auth_config.account_mode == "team_admin" and namespace_id:
+            discovery = self.get_team_discovery()
+            client = client.with_path_root(path_root_for_namespace(namespace_id, discovery.root_namespace_id))
+        target = sdk_path(relative_path)
+        return client, target, namespace_id
 
     def _copy_client(self, *, admin: bool, member_id: str | None = None) -> dropbox.Dropbox:
         if self._auth_config.account_mode != "team_admin":
@@ -516,6 +767,7 @@ class DropboxAdapter:
                 namespace_id=namespace_id,
                 canonical_source_path=namespace_relative_path(namespace_id, path_display),
                 canonical_parent_path=namespace_relative_parent(namespace_relative_path(namespace_id, path_display)),
+                shared_folder_id=getattr(entry, "shared_folder_id", None),
             )
         return None
 
@@ -525,6 +777,9 @@ class DropboxAdapter:
             return payload.split("/", 1)[0]
         return None
 
+    def _should_retry_copy_as_member(self, mapped_error: Exception) -> bool:
+        return isinstance(mapped_error, (AuthenticationFailureError, PathNotFoundError, BlockedPreconditionError))
+
     def _raise_mapped(self, exc: Exception) -> None:
         raise self._map_exception(exc) from exc
 
@@ -532,6 +787,12 @@ class DropboxAdapter:
         message = getattr(exc, "message", str(exc))
         lowered = message.casefold()
         missing_scope = self._extract_required_scope(message)
+        if "no_write_permission" in lowered:
+            return BlockedPreconditionError(
+                "Dropbox denied write permission for the requested archive path. "
+                "Create or choose an archive folder where the authenticated admin/app has editor access, then resume. "
+                f"Dropbox error: {message}"
+            )
         if isinstance(exc, dbx_exceptions.BadInputError):
             if missing_scope is not None or "missing_scope" in lowered:
                 return MissingScopeError(message, required_scope=missing_scope)
@@ -562,3 +823,12 @@ class DropboxAdapter:
         if match:
             return match.group(1)
         return None
+
+    def _archive_write_blocked_detail(self, archive_root: str, exc: Exception) -> str:
+        return (
+            f"Dropbox denied write permission while creating {normalize_dropbox_path(archive_root)} in the team space. "
+            "This is usually a Dropbox team-space policy or folder-permission setting. "
+            "Create that archive folder manually in Dropbox, or choose an existing team-space folder where the authenticated admin/app has editor access, then rerun or resume. "
+            "Original files were not changed. "
+            f"{exc}"
+        )

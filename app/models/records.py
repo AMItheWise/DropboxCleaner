@@ -59,6 +59,7 @@ class TeamDiscoveryResult:
     team_model: str
     root_namespace_id: str | None
     archive_namespace_id: str | None = None
+    archive_namespace_root_path: str = "/"
     archive_shared_folder_id: str | None = None
     archive_provisioned: bool = False
     archive_status_detail: str | None = None
@@ -86,6 +87,7 @@ class RemoteEntry:
     canonical_source_path: str | None = None
     canonical_parent_path: str | None = None
     archive_bucket: str = "personal"
+    shared_folder_id: str | None = None
 
 
 @dataclass(slots=True)

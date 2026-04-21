@@ -28,9 +28,37 @@ class VerificationService:
     ) -> list[VerificationRecord]:
         rows: list[VerificationRecord] = []
         matched_files = list(self._repository.iter_matched_files(run_context.run_id))
+        copy_jobs_by_source = {
+            job["canonical_source_path"]: job for job in self._repository.iter_all_copy_jobs(run_context.run_id)
+        }
         total = len(matched_files)
         for index, match in enumerate(matched_files, start=1):
             cancellation_token.check()
+            copy_job = copy_jobs_by_source.get(match["canonical_source_path"])
+            if copy_job and copy_job["status"] == "blocked_precondition":
+                rows.append(
+                    VerificationRecord(
+                        original_path=match["original_path"],
+                        archive_path=match["planned_archive_path"],
+                        verification_status="blocked_precondition",
+                        detail=copy_job["status_detail"],
+                        source_size=match["size"],
+                        archive_size=None,
+                        source_content_hash=match["content_hash"],
+                        archive_content_hash=None,
+                        account_mode=match.get("account_mode", "personal"),
+                        namespace_id=match.get("namespace_id"),
+                        namespace_type=match.get("namespace_type", "personal"),
+                        namespace_name=match.get("namespace_name"),
+                        member_id=match.get("member_id"),
+                        member_email=match.get("member_email"),
+                        member_display_name=match.get("member_display_name"),
+                        canonical_source_path=match.get("canonical_source_path"),
+                        archive_canonical_path=copy_job.get("archive_canonical_path") or match.get("archive_canonical_path"),
+                        archive_bucket=match.get("archive_bucket", "personal"),
+                    )
+                )
+                continue
             archive_lookup_path = match["archive_canonical_path"] or match["planned_archive_path"]
             archive_entry = retry_call(
                 operation_name=f"verify_get_metadata({archive_lookup_path})",

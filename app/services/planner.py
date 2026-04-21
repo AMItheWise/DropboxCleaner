@@ -4,7 +4,13 @@ from dataclasses import dataclass
 
 from app.models.config import AccountMode
 from app.models.records import TeamDiscoveryResult
-from app.utils.paths import is_same_or_descendant, join_dropbox_path, normalize_dropbox_path, slugify_path_component
+from app.utils.paths import (
+    is_same_or_descendant,
+    join_dropbox_path,
+    namespace_relative_path,
+    normalize_dropbox_path,
+    slugify_path_component,
+)
 
 
 @dataclass(slots=True)
@@ -68,8 +74,15 @@ class ArchivePlanner:
         if self.team_discovery is None or self.team_discovery.archive_namespace_id is None:
             return None
         if self.team_discovery.team_model == "team_space":
-            return f"ns:{self.team_discovery.archive_namespace_id}{display_archive_path}"
+            relative_inside_archive = display_archive_path.removeprefix(self.archive_root)
+            relative_inside_archive = normalize_dropbox_path(relative_inside_archive or "/")
+            archive_base = normalize_dropbox_path(self.team_discovery.archive_namespace_root_path)
+            target_relative_path = (
+                relative_inside_archive
+                if archive_base == "/"
+                else join_dropbox_path(archive_base, relative_inside_archive)
+            )
+            return namespace_relative_path(self.team_discovery.archive_namespace_id, target_relative_path)
         relative_inside_archive = display_archive_path.removeprefix(self.archive_root)
         relative_inside_archive = normalize_dropbox_path(relative_inside_archive or "/")
-        return f"ns:{self.team_discovery.archive_namespace_id}{relative_inside_archive if relative_inside_archive != '/' else ''}"
-
+        return namespace_relative_path(self.team_discovery.archive_namespace_id, relative_inside_archive)

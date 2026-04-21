@@ -56,7 +56,7 @@ class ArchiveCopyService:
 
         resumed_jobs = self._repository.promote_copy_jobs(
             run_context.run_id,
-            from_statuses=("failed", "retried"),
+            from_statuses=("failed", "retried", "blocked_precondition"),
             to_status="resumed",
             detail="Resumed from a previous incomplete run.",
         )
@@ -70,6 +70,15 @@ class ArchiveCopyService:
         if planner.account_mode == "team_admin" and planner.team_discovery is not None:
             if not planner.team_discovery.archive_namespace_id:
                 detail = planner.team_discovery.archive_status_detail or "Central archive namespace is not ready."
+                self._repository.promote_copy_jobs(
+                    run_context.run_id,
+                    from_statuses=PENDING_COPY_STATUSES,
+                    to_status="blocked_precondition",
+                    detail=detail,
+                )
+                return
+            if not dry_run and not planner.team_discovery.archive_provisioned:
+                detail = planner.team_discovery.archive_status_detail or "Central archive folder is not ready for writing."
                 self._repository.promote_copy_jobs(
                     run_context.run_id,
                     from_statuses=PENDING_COPY_STATUSES,
@@ -130,10 +139,15 @@ class ArchiveCopyService:
         original_path = job["original_path"]
         source_path = job["canonical_source_path"]
         archive_display_path = job["archive_path"]
-        archive_canonical_path = job["archive_canonical_path"] or planner.build_archive_canonical_path(
+        planned_canonical_path = planner.build_archive_canonical_path(
             archive_display_path,
             archive_bucket=job.get("archive_bucket") or "personal",
             namespace_id=job.get("namespace_id"),
+        )
+        archive_canonical_path = (
+            planned_canonical_path
+            if planner.account_mode == "team_admin" and planned_canonical_path is not None
+            else job["archive_canonical_path"] or planned_canonical_path
         )
         now_iso = isoformat_utc(utc_now())
         next_attempt_count = int(job["attempt_count"]) + (0 if dry_run else 1)
@@ -152,13 +166,26 @@ class ArchiveCopyService:
             )
             return
 
-        existing_destination = retry_call(
-            operation_name=f"get_metadata({archive_canonical_path})",
-            func=lambda: adapter.get_metadata(archive_canonical_path),
-            logger=self._logger,
-            retry_settings=job_config.retry,
-            is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
-        )
+        try:
+            existing_destination = retry_call(
+                operation_name=f"get_metadata({archive_canonical_path})",
+                func=lambda: adapter.get_metadata(archive_canonical_path),
+                logger=self._logger,
+                retry_settings=job_config.retry,
+                is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
+            )
+        except BlockedPreconditionError as exc:
+            self._repository.update_copy_job_status(
+                run_id,
+                source_path,
+                status="blocked_precondition",
+                status_detail=str(exc),
+                attempt_count=next_attempt_count,
+                first_attempt_at=first_attempt_at,
+                last_attempt_at=now_iso,
+                archive_canonical_path=archive_canonical_path,
+            )
+            return
 
         if existing_destination is not None:
             if self._is_existing_copy_same(existing_destination, job):
@@ -202,11 +229,17 @@ class ArchiveCopyService:
             )
             return
 
-        self._ensure_folder_chain(adapter, namespace_relative_parent(archive_canonical_path), job_config)
         try:
+            self._ensure_folder_chain(adapter, namespace_relative_parent(archive_canonical_path), job_config)
             copied_entry = retry_call(
                 operation_name=f"copy_file({source_path} -> {archive_canonical_path})",
-                func=lambda: adapter.copy_file(source_path, archive_canonical_path, member_id=job.get("member_id")),
+                func=lambda: adapter.copy_file(
+                    source_path,
+                    archive_canonical_path,
+                    member_id=job.get("member_id"),
+                    source_display_path=original_path,
+                    destination_display_path=archive_display_path,
+                ),
                 logger=self._logger,
                 retry_settings=job_config.retry,
                 is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
@@ -216,7 +249,7 @@ class ArchiveCopyService:
                 run_id,
                 source_path,
                 status="skipped_existing_conflict",
-                status_detail="Dropbox reported a destination conflict during server-side copy.",
+                status_detail="Dropbox reported a destination or folder-chain conflict during server-side copy.",
                 attempt_count=next_attempt_count,
                 first_attempt_at=first_attempt_at,
                 last_attempt_at=now_iso,

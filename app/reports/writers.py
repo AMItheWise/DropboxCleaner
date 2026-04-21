@@ -211,6 +211,7 @@ class ReportWriter:
             "archive_staged_total_size": sum((row.archive_size or 0) for row in verification_rows if row.verification_status == "verified"),
             "missing_archive_targets": [row.archive_path for row in verification_rows if row.verification_status == "missing_archive_target"],
             "conflicts": [row.archive_path for row in verification_rows if row.verification_status == "conflict"],
+            "blocked_preconditions": [row.archive_path for row in verification_rows if row.verification_status == "blocked_precondition"],
             "successful_staged_copies": [row.archive_path for row in verification_rows if row.verification_status == "verified"],
         }
         atomic_text_write(json_path, json.dumps({"rows": rows, "summary": summary}, indent=2))

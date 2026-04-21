@@ -5,11 +5,12 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from dropbox import files
 from dropbox import exceptions as dbx_exceptions
 
 from app.dropbox_client.adapter import DropboxAdapter, path_root_for_namespace
 from app.dropbox_client.auth import AuthManager
-from app.dropbox_client.errors import ConflictPolicyAbortError, TemporaryDropboxError
+from app.dropbox_client.errors import BlockedPreconditionError, ConflictPolicyAbortError, TemporaryDropboxError
 from app.models.config import AuthConfig, JobConfig, OutputPaths, RetrySettings, RunContext
 from app.models.records import AccountInfo, InventoryRecord, TeamDiscoveryResult, TraversalRoot
 from app.persistence.repository import RunStateRepository
@@ -220,6 +221,173 @@ def test_team_path_root_uses_arbitrary_namespace_for_non_root_namespaces() -> No
     assert root_path_root.get_root() == "ns-root"
     assert child_path_root.is_namespace_id()
     assert child_path_root.get_namespace_id() == "ns-shared"
+
+
+def test_team_archive_location_resolves_mounted_namespace() -> None:
+    discovery = replace(
+        make_team_discovery(),
+        traversal_roots=[
+            *make_team_discovery().traversal_roots,
+            TraversalRoot(
+                root_key="namespace::ns-screenshots",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="shared_folder",
+                namespace_name="Screenshots",
+                archive_bucket="shared_namespaces",
+                canonical_root="ns:ns-screenshots",
+            ),
+        ],
+    )
+    adapter = DropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("adapter.archive_location"),
+    )
+    try:
+        namespace_id, relative_path, label = adapter._team_space_archive_location(discovery, "/Screenshots/Archive")
+    finally:
+        adapter.close()
+
+    assert namespace_id == "ns-screenshots"
+    assert relative_path == "/Archive"
+    assert label == "mounted namespace Screenshots"
+
+
+def test_team_archive_canonical_path_uses_archive_namespace_root_path() -> None:
+    discovery = replace(
+        make_team_discovery(),
+        archive_namespace_id="ns-screenshots",
+        archive_namespace_root_path="/Archive",
+        archive_provisioned=True,
+    )
+    planner = ArchivePlanner("/Screenshots/Archive", account_mode="team_admin").with_team_discovery(discovery)
+
+    assert (
+        planner.build_archive_canonical_path(
+            "/Screenshots/Archive/member_homes/amithewise-gmail.com/5.docx",
+            archive_bucket="member_homes",
+            namespace_id="ns-home",
+        )
+        == "ns:ns-screenshots/Archive/member_homes/amithewise-gmail.com/5.docx"
+    )
+
+
+def test_team_archive_sharing_switches_to_shared_folder_namespace() -> None:
+    calls: dict[str, list] = {"share": [], "add": [], "mount": []}
+
+    class ShareMetadata:
+        shared_folder_id = "sf:archive"
+
+    class ShareLaunch:
+        def is_complete(self) -> bool:
+            return True
+
+        def is_async_job_id(self) -> bool:
+            return False
+
+        def get_complete(self) -> ShareMetadata:
+            return ShareMetadata()
+
+    class ShareClient:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        def sharing_share_folder(self, path: str, force_async: bool = False) -> ShareLaunch:
+            calls["share"].append((path, force_async))
+            return ShareLaunch()
+
+        def sharing_add_folder_member(self, shared_folder_id: str, members: list, quiet: bool = False) -> None:
+            calls["add"].append((shared_folder_id, members[0].member.get_email(), members[0].access_level.is_editor(), quiet))
+
+        def sharing_mount_folder(self, shared_folder_id: str) -> None:
+            calls["mount"].append((self.label, shared_folder_id))
+
+    admin_client = ShareClient("admin")
+    member_client = ShareClient("member")
+    adapter = DropboxAdapter.__new__(DropboxAdapter)
+    adapter._logger = make_logger("adapter.share_archive")
+    adapter.get_metadata = lambda path: make_folder("/Archive", dropbox_id="id:archive", namespace_id="ns-team-folder")
+    adapter._metadata_client_and_target = lambda path: (admin_client, "/Archive", "ns-team-folder")
+    adapter._copy_client = lambda *, admin, member_id=None: admin_client if admin else member_client
+
+    result = adapter._finalize_team_space_archive_destination(
+        make_team_discovery(),
+        archive_root="/Amithewise Team Folder/Archive",
+        archive_path="ns:ns-team-folder/Archive",
+        archive_namespace_id="ns-team-folder",
+        archive_relative_path="/Archive",
+        archive_location_label="mounted namespace Amithewise Team Folder",
+        create=True,
+        reused=True,
+    )
+
+    assert result.archive_namespace_id == "sf:archive"
+    assert result.archive_namespace_root_path == "/"
+    assert result.archive_shared_folder_id == "sf:archive"
+    assert calls["share"] == [("/Archive", False)]
+    assert calls["add"] == [("sf:archive", "alice@example.com", True, True)]
+    assert calls["mount"] == [("member", "sf:archive")]
+
+
+def test_no_write_permission_maps_to_blocked_precondition() -> None:
+    adapter = DropboxAdapter(AuthConfig(method="access_token", access_token="token"), make_logger("adapter.no_write"))
+    try:
+        mapped = adapter._map_exception(RuntimeError("WriteError('no_write_permission', None)"))
+        assert isinstance(mapped, BlockedPreconditionError)
+        assert "editor access" in str(mapped)
+    finally:
+        adapter.close()
+
+
+def test_team_copy_retries_member_context_after_admin_write_denied() -> None:
+    calls: list[tuple[str, str, str, bool]] = []
+
+    class CopyResult:
+        def __init__(self) -> None:
+            self.metadata = files.FileMetadata(
+                name="5.docx",
+                id="id:copied",
+                client_modified=utc_now(),
+                server_modified=utc_now(),
+                rev="123456789",
+                size=4,
+                path_lower="/archive/member_homes/user/5.docx",
+                path_display="/Archive/member_homes/user/5.docx",
+            )
+
+    class CopyClient:
+        def __init__(self, label: str, exc: Exception | None = None) -> None:
+            self.label = label
+            self.exc = exc
+
+        def files_copy_v2(self, source: str, destination: str, autorename: bool = False) -> CopyResult:
+            calls.append((self.label, source, destination, autorename))
+            if self.exc is not None:
+                raise self.exc
+            return CopyResult()
+
+    adapter = DropboxAdapter.__new__(DropboxAdapter)
+    adapter._auth_config = AuthConfig(method="access_token", account_mode="team_admin", access_token="token")
+    adapter._logger = make_logger("adapter.copy_fallback")
+    admin_client = CopyClient("admin", RuntimeError("RelocationError('to', WriteError('no_write_permission', None))"))
+    member_client = CopyClient("member")
+    adapter._copy_client = lambda *, admin, member_id=None: admin_client if admin else member_client
+
+    entry = adapter.copy_file(
+        "ns:member-home/5.docx",
+        "ns:team-archive/Archive/5.docx",
+        member_id="dbmid:user",
+        source_display_path="/5.docx",
+        destination_display_path="/Archive/5.docx",
+    )
+
+    assert entry.dropbox_id == "id:copied"
+    assert entry.namespace_id == "team-archive"
+    assert calls == [
+        ("admin", "ns:member-home/5.docx", "ns:team-archive/Archive/5.docx", False),
+        ("member", "/5.docx", "/Archive/5.docx", False),
+    ]
 
 
 def test_archive_destination_exclusion(tmp_path: Path) -> None:
@@ -630,7 +798,12 @@ def test_test_connection_validates_listing_scope() -> None:
 
 def test_team_copy_uses_canonical_archive_paths(tmp_path: Path) -> None:
     team_discovery = make_team_discovery()
-    team_discovery = replace(team_discovery, archive_namespace_id="ns-root", archive_provisioned=True)
+    team_discovery = replace(
+        team_discovery,
+        archive_namespace_id="ns-root",
+        archive_namespace_root_path="/Archive_PreMay2020",
+        archive_provisioned=True,
+    )
     run_context, repository = make_run_context(tmp_path, "copy_run", "team_admin")
     seed_inventory(
         repository,
@@ -703,3 +876,214 @@ def test_team_copy_uses_canonical_archive_paths(tmp_path: Path) -> None:
     manifest = list(repository.manifest_rows(run_context.run_id))
     assert manifest[0].status == "copied"
     assert manifest[0].archive_canonical_path == "ns:ns-root/Archive_PreMay2020/member_homes/alice-example.com/Projects/old.psd"
+
+
+def test_team_copy_blocks_cleanly_when_archive_not_provisioned(tmp_path: Path) -> None:
+    team_discovery = replace(
+        make_team_discovery(),
+        archive_namespace_id="ns-root",
+        archive_namespace_root_path="/Archive_PreMay2020",
+        archive_provisioned=False,
+        archive_status_detail="Dropbox denied write permission while creating /Archive_PreMay2020.",
+    )
+    run_context, repository = make_run_context(tmp_path, "copy_run", "team_admin")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": "/root-plan.docx",
+                "dropbox_id": "id:root",
+                "size": 4,
+                "server_modified": "2019-01-01T00:00:00Z",
+                "client_modified": "2019-01-01T00:00:00Z",
+                "content_hash": "hash-root",
+                "account_mode": "team_admin",
+                "namespace_id": "ns-root",
+                "namespace_type": "team_space",
+                "namespace_name": "Acme",
+                "canonical_source_path": "ns:ns-root/root-plan.docx",
+                "canonical_parent_path": "ns:ns-root",
+                "archive_bucket": "team_space",
+            }
+        ],
+    )
+    planner = ArchivePlanner("/Archive_PreMay2020", account_mode="team_admin").with_team_discovery(team_discovery)
+    FilterService(repository, make_logger("filter.team.blocked")).run(
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=planner,
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+    backend = FakeDropboxBackend([], page_size=10, account=team_discovery.account_info, team_discovery=team_discovery)
+    adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("copy.team.blocked"),
+        backend,
+    )
+
+    ArchiveCopyService(repository, make_logger("copy.team.blocked")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=planner,
+        emit=None,
+        cancellation_token=CancellationToken(),
+        dry_run=False,
+    )
+
+    manifest = list(repository.manifest_rows(run_context.run_id))
+    assert manifest[0].status == "blocked_precondition"
+    assert "denied write permission" in manifest[0].status_detail
+    assert backend.copy_calls == []
+
+    backend.queue_failure(
+        "get_metadata",
+        "ns:ns-root/Archive_PreMay2020/team_space/root-plan.docx",
+        "",
+        TemporaryDropboxError("verification should not call Dropbox for blocked jobs"),
+    )
+    rows = VerificationService(repository, make_logger("verify.team.blocked")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="copy_run",
+            retry=RetrySettings(max_retries=0, initial_backoff_seconds=0, backoff_multiplier=1, max_backoff_seconds=0),
+        ),  # type: ignore[arg-type]
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+    assert rows[0].verification_status == "blocked_precondition"
+    assert "denied write permission" in rows[0].detail
+
+    resumed_discovery = replace(team_discovery, archive_provisioned=True)
+    resume_backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/root-plan.docx",
+                dropbox_id="id:root",
+                size=4,
+                content_hash="hash-root",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+                namespace_name="Acme",
+                archive_bucket="team_space",
+            )
+        ],
+        page_size=10,
+        account=resumed_discovery.account_info,
+        team_discovery=resumed_discovery,
+    )
+    resume_adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("copy.team.resumed_blocked"),
+        resume_backend,
+    )
+    ArchiveCopyService(repository, make_logger("copy.team.resumed_blocked")).run(
+        adapter=resume_adapter,
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020", account_mode="team_admin").with_team_discovery(resumed_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        dry_run=False,
+    )
+
+    resumed_manifest = list(repository.manifest_rows(run_context.run_id))
+    assert resumed_manifest[0].status == "copied"
+    assert resume_backend.copy_calls == [("ns:ns-root/root-plan.docx", "ns:ns-root/Archive_PreMay2020/team_space/root-plan.docx")]
+
+
+def test_team_resume_rebuilds_archive_canonical_path_for_mounted_archive(tmp_path: Path) -> None:
+    old_discovery = replace(
+        make_team_discovery(),
+        archive_namespace_id="ns-root",
+        archive_namespace_root_path="/Screenshots/Archive",
+        archive_provisioned=True,
+    )
+    run_context, repository = make_run_context(tmp_path, "copy_run", "team_admin")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": "/root-plan.docx",
+                "dropbox_id": "id:root",
+                "size": 4,
+                "server_modified": "2019-01-01T00:00:00Z",
+                "client_modified": "2019-01-01T00:00:00Z",
+                "content_hash": "hash-root",
+                "account_mode": "team_admin",
+                "namespace_id": "ns-root",
+                "namespace_type": "team_space",
+                "namespace_name": "Acme",
+                "canonical_source_path": "ns:ns-root/root-plan.docx",
+                "canonical_parent_path": "ns:ns-root",
+                "archive_bucket": "team_space",
+            }
+        ],
+    )
+    FilterService(repository, make_logger("filter.team.rebuild")).run(
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Screenshots/Archive", account_mode="team_admin").with_team_discovery(old_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+    old_manifest = list(repository.manifest_rows(run_context.run_id))
+    assert old_manifest[0].archive_canonical_path == "ns:ns-root/Screenshots/Archive/team_space/root-plan.docx"
+    repository.promote_copy_jobs(
+        run_context.run_id,
+        from_statuses=("planned",),
+        to_status="blocked_precondition",
+        detail="Old run blocked before mounted archive namespace was resolved.",
+    )
+
+    new_discovery = replace(
+        make_team_discovery(),
+        archive_namespace_id="ns-screenshots",
+        archive_namespace_root_path="/Archive",
+        archive_provisioned=True,
+    )
+    backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/root-plan.docx",
+                dropbox_id="id:root",
+                size=4,
+                content_hash="hash-root",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+                namespace_name="Acme",
+                archive_bucket="team_space",
+            )
+        ],
+        page_size=10,
+        account=new_discovery.account_info,
+        team_discovery=new_discovery,
+    )
+    ArchiveCopyService(repository, make_logger("copy.team.rebuild")).run(
+        adapter=FakeDropboxAdapter(
+            AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+            make_logger("copy.team.rebuild.adapter"),
+            backend,
+        ),
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Screenshots/Archive", account_mode="team_admin").with_team_discovery(new_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        dry_run=False,
+    )
+
+    resumed_manifest = list(repository.manifest_rows(run_context.run_id))
+    assert resumed_manifest[0].status == "copied"
+    assert resumed_manifest[0].archive_canonical_path == "ns:ns-screenshots/Archive/team_space/root-plan.docx"
+    assert backend.copy_calls == [("ns:ns-root/root-plan.docx", "ns:ns-screenshots/Archive/team_space/root-plan.docx")]

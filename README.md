@@ -193,6 +193,12 @@ py -3.11 -m app.cli.main verify ^
   - `/Archive_PreMay2020/member_homes/<member-slug>/...`
   - `/Archive_PreMay2020/shared_namespaces/<namespace-slug>/...`
 
+## Troubleshooting
+
+### Team copy run says `no_write_permission`
+
+Some Dropbox team-space policies block API-created top-level folders even for admin-authorized apps. If a copy run reports `blocked_precondition` or `no_write_permission` while creating the archive folder, create the archive folder manually in Dropbox or choose an existing team-space folder where the authenticated admin/app has editor access. Then use Resume; originals are not deleted or moved.
+
 ## Outputs
 
 Every run creates a timestamped output folder with:

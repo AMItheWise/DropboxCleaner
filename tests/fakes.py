@@ -25,6 +25,7 @@ def make_file(
     member_email: str | None = None,
     member_display_name: str | None = None,
     archive_bucket: str = "personal",
+    shared_folder_id: str | None = None,
 ) -> RemoteEntry:
     normalized = normalize_dropbox_path(path)
     canonical = namespace_relative_path(namespace_id, normalized)
@@ -49,6 +50,7 @@ def make_file(
         canonical_source_path=canonical,
         canonical_parent_path=namespace_relative_path(namespace_id, parent_path(normalized)),
         archive_bucket=archive_bucket,
+        shared_folder_id=shared_folder_id,
     )
 
 
@@ -130,6 +132,7 @@ class FakeDropboxBackend:
             return replace(
                 discovery,
                 archive_namespace_id=archive_namespace_id,
+                archive_namespace_root_path=archive_display,
                 archive_provisioned=bool(archive_namespace_id),
                 archive_status_detail="Using fake team-space archive.",
             )
@@ -295,7 +298,15 @@ class FakeDropboxAdapter:
             raise exc
         return self.backend.create_folder_if_missing(path)
 
-    def copy_file(self, source_path: str, destination_path: str, member_id: str | None = None) -> RemoteEntry:
+    def copy_file(
+        self,
+        source_path: str,
+        destination_path: str,
+        member_id: str | None = None,
+        *,
+        source_display_path: str | None = None,
+        destination_display_path: str | None = None,
+    ) -> RemoteEntry:
         return self.backend.copy_file(source_path, destination_path)
 
 

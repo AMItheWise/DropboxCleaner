@@ -258,7 +258,7 @@ class RunOrchestrator:
 
             pending_copy_jobs = repository.fetch_copy_jobs(
                 run_context.run_id,
-                statuses=("planned", "failed", "retried", "resumed"),
+                statuses=("planned", "failed", "retried", "resumed", "blocked_precondition"),
                 limit=1,
             )
             has_pending_copy_jobs = bool(pending_copy_jobs)
