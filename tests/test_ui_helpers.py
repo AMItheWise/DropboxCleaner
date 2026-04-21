@@ -25,6 +25,12 @@ def make_logger() -> logging.Logger:
     return logger
 
 
+def test_qt_gui_entry_imports() -> None:
+    from app.ui.main import main
+
+    assert callable(main)
+
+
 def test_friendly_choice_mappings() -> None:
     assert run_label_to_value("Inventory only") == "inventory_only"
     assert run_label_to_value("Preview archive") == "dry_run"

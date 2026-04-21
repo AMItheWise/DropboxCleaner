@@ -1,6 +1,6 @@
 # Packaging Dropbox Cleaner
 
-Dropbox Cleaner can be packaged as a double-click desktop app with PyInstaller.
+Dropbox Cleaner can be packaged as a double-click PySide6 desktop app with PyInstaller.
 
 ## Windows
 
@@ -47,5 +47,6 @@ dist/Dropbox Cleaner.app
 - Build macOS apps on macOS and Windows apps on Windows.
 - The build scripts install runtime and packaging dependencies from `requirements.txt` and `requirements-dev.txt`.
 - If no bundled app key is provided, the GUI asks for a Dropbox app key on the connection screen.
+- GitHub Actions builds unsigned zipped artifacts for pull requests, pushes to `main`/`master`, and manual workflow runs: `DropboxCleaner-Windows.zip` and `DropboxCleaner-macOS.zip`.
 - For public distribution on macOS, sign and notarize the `.app` after building.
 - For public distribution on Windows, sign the executable or installer after building.

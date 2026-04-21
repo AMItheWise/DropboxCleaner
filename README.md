@@ -53,6 +53,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 - Python 3.11+
 - A Dropbox API app
+- PySide6 is installed from `requirements.txt` for the desktop UI
 
 Recommended app scopes by mode:
 
@@ -108,6 +109,7 @@ py -3.11 -m app.cli.main --help
 ## Build Double-Click Apps
 
 Packaging instructions are in [docs/PACKAGING.md](docs/PACKAGING.md).
+GitHub Actions also builds unsigned zipped Windows and macOS artifacts for pull requests, pushes to `main`/`master`, and manual workflow runs.
 
 Windows:
 

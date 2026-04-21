@@ -1,1 +1,1 @@
-"""Tkinter desktop UI."""
+"""Desktop UI entry points."""

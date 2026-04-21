@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "Dropbox Cleaner contributors" }
 ]
-keywords = ["dropbox", "desktop", "archive", "inventory", "tkinter", "cli"]
+keywords = ["dropbox", "desktop", "archive", "inventory", "pyside6", "qt", "cli"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -34,9 +34,7 @@ dependencies = [
   "keyring>=25.0.0,<26",
   "platformdirs>=4.0.0,<5",
   "PyYAML>=6.0.0,<7",
-  "customtkinter>=5.2.2,<6",
-  "tkcalendar>=1.6.1,<2",
-  "Pillow>=10.0.0,<12",
+  "PySide6>=6.8,<7",
 ]
 
 [project.optional-dependencies]

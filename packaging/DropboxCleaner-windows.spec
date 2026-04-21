@@ -1,12 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files
 from pathlib import Path
 
 
 repo_root = Path(SPECPATH).parent
-datas = collect_data_files("customtkinter") + collect_data_files("tkcalendar")
-hiddenimports = ["babel.numbers"]
+datas = []
+hiddenimports = []
 
 a = Analysis(
     [str(repo_root / "app" / "__main__.py")],
@@ -17,7 +16,12 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "PySide6.QtQml",
+        "PySide6.QtQuick",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+    ],
     noarchive=False,
     optimize=0,
 )

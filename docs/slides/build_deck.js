@@ -257,7 +257,7 @@ function coverSlide() {
     valign: "mid",
     margin: 0,
   });
-  slide.addText("Python 3.11+\nTkinter GUI\nCLI + shared services\nSQLite resumability", {
+  slide.addText("Python 3.11+\nPySide6 GUI\nCLI + shared services\nSQLite resumability", {
     x: 9.45,
     y: 5.5,
     w: 2.7,
@@ -491,7 +491,7 @@ function architectureSlide() {
     "The project is structured for maintainability: thin interfaces at the edges, shared orchestration in the middle, and durable state underneath."
   );
 
-  addCard(slide, 0.86, 2.12, 2.42, 1.12, "Tkinter GUI", "Connection, setup, progress, and results tabs for local desktop operation.", COLORS.blue);
+  addCard(slide, 0.86, 2.12, 2.42, 1.12, "PySide6 GUI", "Guided connection, setup, progress, and results screens for local desktop operation.", COLORS.blue);
   addCard(slide, 0.86, 3.5, 2.42, 1.12, "CLI", "Advanced and automation-friendly entry points using the same services.", COLORS.mint);
 
   addShapeBlock(slide, 3.72, 2.62, 2.54, 1.4, "Run Orchestrator", "Coordinates inventory, filter, copy, verify, outputs", COLORS.blueDark, COLORS.white);
