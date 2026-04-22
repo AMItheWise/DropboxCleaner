@@ -77,9 +77,6 @@ class AccountScreen(QWidget):
             )
         )
         hero_layout.addStretch(1)
-        safe = QLabel("Copy-first workflow. Originals stay in place.")
-        safe.setObjectName("safe")
-        hero_layout.addWidget(safe)
         layout.addWidget(hero, 0, 0, 2, 1)
 
         choices = QWidget()
@@ -117,6 +114,8 @@ class ConnectionScreen(QWidget):
         super().__init__()
         self._account_mode = "personal"
         self._connected = False
+        self._saved_credentials_available = False
+        self._packaged_app_key_available = False
         self._spinner_index = 0
         self._spinner_frames = ("|", "/", "-", "\\")
         self._spinner_timer = QTimer(self)
@@ -147,6 +146,32 @@ class ConnectionScreen(QWidget):
         back_row.addStretch(1)
         main_layout.addLayout(back_row)
 
+        self.saved_panel = card_frame("softCard")
+        saved_layout = QVBoxLayout(self.saved_panel)
+        saved_layout.setContentsMargins(18, 18, 18, 18)
+        saved_layout.setSpacing(10)
+        saved_title = QLabel("Saved Dropbox connection")
+        saved_title.setObjectName("sectionTitle")
+        self.saved_summary_label = QLabel(
+            "A saved Dropbox connection was found. Test it before continuing."
+        )
+        self.saved_summary_label.setObjectName("body")
+        self.saved_summary_label.setWordWrap(True)
+        saved_actions = QHBoxLayout()
+        self.use_saved_button = QPushButton("Use saved connection")
+        theme.set_role(self.use_saved_button, "primary")
+        self.use_saved_button.clicked.connect(self.test_connection_requested.emit)
+        self.reconnect_button = QPushButton("Reconnect")
+        theme.set_role(self.reconnect_button, "ghost")
+        self.reconnect_button.clicked.connect(self._show_reconnect_form)
+        saved_actions.addWidget(self.use_saved_button)
+        saved_actions.addWidget(self.reconnect_button)
+        saved_layout.addWidget(saved_title)
+        saved_layout.addWidget(self.saved_summary_label)
+        saved_layout.addLayout(saved_actions)
+        self.saved_panel.hide()
+        main_layout.addWidget(self.saved_panel)
+
         self.app_key_label = QLabel("Dropbox app key")
         main_layout.addWidget(self.app_key_label)
         self.app_key_edit = QLineEdit()
@@ -158,7 +183,8 @@ class ConnectionScreen(QWidget):
         self.connect_button.clicked.connect(self.start_oauth_requested.emit)
         main_layout.addWidget(self.connect_button)
 
-        main_layout.addWidget(QLabel("Authorization code"))
+        self.auth_code_label = QLabel("Authorization code")
+        main_layout.addWidget(self.auth_code_label)
         self.auth_code_edit = QLineEdit()
         self.auth_code_edit.setPlaceholderText("Paste the code Dropbox gives you")
         main_layout.addWidget(self.auth_code_edit)
@@ -167,6 +193,14 @@ class ConnectionScreen(QWidget):
         theme.set_role(self.finish_button, "success")
         self.finish_button.clicked.connect(self.finish_oauth_requested.emit)
         main_layout.addWidget(self.finish_button)
+        self._oauth_widgets = [
+            self.app_key_label,
+            self.app_key_edit,
+            self.connect_button,
+            self.auth_code_label,
+            self.auth_code_edit,
+            self.finish_button,
+        ]
 
         busy_row = QHBoxLayout()
         self.spinner_label = QLabel("|")
@@ -225,7 +259,7 @@ class ConnectionScreen(QWidget):
         main_layout.addWidget(self.continue_button)
         layout.addWidget(main, 0, 0)
 
-        side = SafetyPanel()
+        side = SafetyPanel("Connection privacy")
         layout.addWidget(side, 0, 1)
 
     def set_account_mode(self, value: str) -> None:
@@ -238,10 +272,38 @@ class ConnectionScreen(QWidget):
 
     def set_packaged_app_key(self, app_key: str | None) -> None:
         has_key = bool(app_key)
+        self._packaged_app_key_available = has_key
         if has_key:
             self.app_key_edit.setText(app_key or "")
-        self.app_key_label.setVisible(not has_key)
-        self.app_key_edit.setVisible(not has_key)
+        self._apply_connection_form_visibility()
+
+    def set_saved_credentials_available(self, available: bool, summary: str = "") -> None:
+        self._saved_credentials_available = available
+        self.saved_panel.setVisible(available)
+        if summary:
+            self.saved_summary_label.setText(summary)
+        self._apply_connection_form_visibility()
+        if available:
+            self.advanced.setChecked(False)
+            self.advanced.setVisible(False)
+            self.set_connected(False)
+        else:
+            self.advanced.setVisible(True)
+        self.test_button.setVisible(not available)
+        self.disconnect_button.setText("Forget saved connection" if available else "Disconnect")
+
+    def _show_reconnect_form(self) -> None:
+        self.set_saved_credentials_available(False)
+        self.set_connected(False)
+        self.set_status("Reconnect with Dropbox, then paste the new authorization code.")
+
+    def _apply_connection_form_visibility(self) -> None:
+        show_oauth = not self._saved_credentials_available
+        for widget in getattr(self, "_oauth_widgets", []):
+            widget.setVisible(show_oauth)
+        if show_oauth and self._packaged_app_key_available:
+            self.app_key_label.setVisible(False)
+            self.app_key_edit.setVisible(False)
 
     def set_status(self, text: str, success: bool = False) -> None:
         self.status_label.setText(text)
@@ -261,6 +323,8 @@ class ConnectionScreen(QWidget):
             getattr(self, "finish_button", None),
             getattr(self, "test_button", None),
             getattr(self, "disconnect_button", None),
+            getattr(self, "use_saved_button", None),
+            getattr(self, "reconnect_button", None),
             getattr(self, "save_token_button", None),
             getattr(self, "continue_button", None),
         ):
@@ -317,7 +381,7 @@ class SettingsScreen(QWidget):
             TitleBlock(
                 "Step 3 of 5",
                 "Run settings",
-                "Pick the cutoff date and archive folder. Originals always stay where they are.",
+                "Pick the cutoff date, archive folder, reports folder, and run type.",
             )
         )
         back_row = QHBoxLayout()
@@ -352,20 +416,26 @@ class SettingsScreen(QWidget):
             side_layout.addWidget(card)
             self.run_cards[choice.value] = card
         self._refresh_run_cards()
+        side_layout.addStretch(1)
+
+        action_panel = card_frame()
+        action_layout = QVBoxLayout(action_panel)
+        action_layout.setContentsMargins(18, 18, 18, 18)
+        action_layout.setSpacing(10)
         start_button = QPushButton("Start run")
         theme.set_role(start_button, "primary")
         start_button.clicked.connect(self.start_run_requested.emit)
-        side_layout.addWidget(start_button)
+        action_layout.addWidget(start_button)
         self.resume_button = QPushButton("Resume last run")
         theme.set_role(self.resume_button, "ghost")
         self.resume_button.clicked.connect(self.resume_requested.emit)
         self.resume_button.hide()
-        side_layout.addWidget(self.resume_button)
-        safe = QLabel("Nothing will be deleted. Copy mode only creates archive copies.")
+        action_layout.addWidget(self.resume_button)
+        safe = QLabel("Copy mode asks for confirmation before it starts.")
         safe.setObjectName("safe")
         safe.setWordWrap(True)
-        side_layout.addWidget(safe)
-        side_layout.addStretch(1)
+        action_layout.addWidget(safe)
+        side_layout.addWidget(action_panel)
         root_layout.addWidget(side, 0, 1)
 
     def _build_date_card(self) -> None:
@@ -664,11 +734,17 @@ class ResultsScreen(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        self._current_result: ResultsViewModel | None = None
+        self._current_run_dir: Path | None = None
+        self._last_compact: bool | None = None
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(34, 28, 34, 34)
         self._layout.setSpacing(20)
 
     def set_empty(self) -> None:
+        self._current_result = None
+        self._current_run_dir = None
+        self._last_compact = None
         clear_layout(self._layout)
         card = card_frame()
         layout = QVBoxLayout(card)
@@ -677,20 +753,47 @@ class ResultsScreen(QWidget):
         self._layout.addWidget(card, 0, 0)
 
     def set_result(self, result: ResultsViewModel, run_dir: Path) -> None:
+        self._current_result = result
+        self._current_run_dir = run_dir
+        self._last_compact = self._is_compact()
+        self._render_result()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._current_result is None:
+            return
+        compact = self._is_compact()
+        if compact != self._last_compact:
+            self._last_compact = compact
+            self._render_result()
+
+    def _render_result(self) -> None:
+        if self._current_result is None or self._current_run_dir is None:
+            return
+        result = self._current_result
+        run_dir = self._current_run_dir
+        compact = self._is_compact()
         clear_layout(self._layout)
-        self._layout.setColumnStretch(0, 3)
-        self._layout.setColumnStretch(1, 2)
+        self._layout.setColumnStretch(0, 1 if compact else 5)
+        self._layout.setColumnStretch(1, 0 if compact else 2)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self._build_results_content(result, run_dir, compact=compact))
+        self._layout.addWidget(scroll, 0, 0)
+        if not compact:
+            self._layout.addWidget(self._build_side_panel(result, run_dir), 0, 1)
+
+    def _build_results_content(self, result: ResultsViewModel, run_dir: Path, *, compact: bool) -> QWidget:
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(16)
         content_layout.addWidget(TitleBlock("Step 5 of 5", "Run complete", result.success_message))
-        content_layout.addWidget(metrics_grid(result.metrics))
-
+        content_layout.addWidget(metrics_grid(result.metrics, columns=2 if compact else 4))
+        if compact:
+            content_layout.addWidget(self._build_side_panel(result, run_dir))
         folders = card_frame()
         folders_layout = QVBoxLayout(folders)
         folders_layout.setContentsMargins(18, 18, 18, 18)
@@ -715,15 +818,22 @@ class ResultsScreen(QWidget):
         issues_layout.addWidget(issue_table)
         content_layout.addWidget(issues)
         content_layout.addStretch(1)
-        scroll.setWidget(content)
-        self._layout.addWidget(scroll, 0, 0)
+        return content
 
+    def _build_side_panel(self, result: ResultsViewModel, run_dir: Path) -> QFrame:
         side = card_frame("softCard")
+        if not self._is_compact():
+            side.setMinimumWidth(360)
+            side.setMaximumWidth(520)
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(24, 24, 24, 24)
         side_layout.setSpacing(14)
-        side_layout.addWidget(QLabel(f"Run ID: {result.run_id or 'unknown'}"))
-        side_layout.addWidget(QLabel(f"Output folder: {run_dir}"))
+        run_id_label = QLabel(f"Run ID: {result.run_id or 'unknown'}")
+        run_id_label.setWordWrap(True)
+        output_label = QLabel(f"Output folder: {run_dir}")
+        output_label.setWordWrap(True)
+        side_layout.addWidget(run_id_label)
+        side_layout.addWidget(output_label)
         donut = DonutChartWidget()
         donut.set_slices(result.status_slices)
         side_layout.addWidget(donut)
@@ -752,7 +862,10 @@ class ResultsScreen(QWidget):
         another_button.clicked.connect(self.start_another_requested.emit)
         side_layout.addWidget(another_button)
         side_layout.addStretch(1)
-        self._layout.addWidget(side, 0, 1)
+        return side
+
+    def _is_compact(self) -> bool:
+        return self.width() < 1180
 
 
 def _settings_card(title: str, body: str) -> QFrame:

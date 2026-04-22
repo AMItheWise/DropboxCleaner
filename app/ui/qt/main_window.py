@@ -103,6 +103,7 @@ class DropboxCleanerMainWindow(QMainWindow):
         if mode_changed:
             self._connection_verified = False
             self.connection_screen.set_connected(False)
+            self.connection_screen.set_saved_credentials_available(False)
         self.connection_screen.set_busy(False)
         self.settings_screen.set_account_mode(value)
         self.stack.setCurrentWidget(self.connection_screen)
@@ -221,6 +222,7 @@ class DropboxCleanerMainWindow(QMainWindow):
         self.connection_screen.token_edit.clear()
         self._connection_verified = False
         self._connected_account_summary = "Saved connection removed. Connect Dropbox again to continue."
+        self.connection_screen.set_saved_credentials_available(False)
         self.connection_screen.set_status(self._connected_account_summary)
         self.connection_screen.set_connected(False)
 
@@ -428,7 +430,11 @@ class DropboxCleanerMainWindow(QMainWindow):
             self.connection_screen.app_key_edit.setText(saved.app_key)
         if saved.admin_member_id:
             self.connection_screen.admin_member_id_edit.setText(saved.admin_member_id)
-        self._connected_account_summary = "Saved Dropbox connection found. Continue or reconnect if needed."
+        self._connected_account_summary = "Saved Dropbox connection found. Test it before continuing."
+        self.connection_screen.set_saved_credentials_available(
+            True,
+            "A saved Dropbox connection was found for this account. Test it before continuing.",
+        )
         self.connection_screen.set_status(self._connected_account_summary)
         self.connection_screen.set_connected(False)
 

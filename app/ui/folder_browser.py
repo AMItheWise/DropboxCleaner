@@ -30,6 +30,7 @@ class BrowserLocation:
     namespace_id: str | None = None
     namespace_path: str = "/"
     title: str = "Dropbox"
+    view_mode: str = "default"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,7 @@ class BrowserFolder:
             namespace_id=self.namespace_id,
             namespace_path=self.namespace_path,
             title=self.name,
+            view_mode="default",
         )
 
 
@@ -69,6 +71,12 @@ class DropboxFolderBrowserService:
     def root_location(self) -> BrowserLocation:
         return BrowserLocation(display_path="/", title="Dropbox")
 
+    def advanced_team_root_location(self) -> BrowserLocation:
+        return BrowserLocation(display_path="/", title="Advanced team locations", view_mode="team_namespaces")
+
+    def has_advanced_team_locations(self) -> bool:
+        return self._account_mode == "team_admin"
+
     def parent_location(self, location: BrowserLocation) -> BrowserLocation:
         if location.namespace_id is None or self._account_mode != "team_admin":
             parent = _parent_path(location.display_path)
@@ -86,8 +94,25 @@ class DropboxFolderBrowserService:
 
     def list_folders(self, location: BrowserLocation) -> list[BrowserFolder]:
         if self._account_mode == "team_admin" and location.namespace_id is None and location.display_path == "/":
+            if location.view_mode == "team_namespaces":
+                return self._team_roots()
+            team_root = self._team_space_root_location()
+            if team_root is not None:
+                return self._list_folder_entries(team_root)
             return self._team_roots()
         return self._list_folder_entries(location)
+
+    def _team_space_root_location(self) -> BrowserLocation | None:
+        discovery = self._get_team_discovery()
+        if not discovery.root_namespace_id:
+            return None
+        return BrowserLocation(
+            display_path="/",
+            namespace_id=discovery.root_namespace_id,
+            namespace_path="/",
+            title="Team Dropbox",
+            view_mode="team_space_root",
+        )
 
     def _team_roots(self) -> list[BrowserFolder]:
         discovery = self._get_team_discovery()

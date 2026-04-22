@@ -151,10 +151,20 @@ def test_personal_folder_browser_lists_nested_folders() -> None:
     assert backend.list_continue_calls >= 1
 
 
-def test_team_folder_browser_lists_team_roots_and_children() -> None:
+def test_team_folder_browser_defaults_to_web_like_team_root() -> None:
     discovery = TeamDiscoveryResult(
         account_info=AccountInfo("dbid:admin", "Admin", account_mode="team_admin"),
         traversal_roots=[
+            TraversalRoot(
+                root_key="namespace::ns-root",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+                namespace_name="Example Team",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-root",
+            ),
             TraversalRoot(
                 root_key="namespace::ns-team-folder",
                 root_path="/",
@@ -182,8 +192,29 @@ def test_team_folder_browser_lists_team_roots_and_children() -> None:
     backend = FakeDropboxBackend(
         [
             make_folder(
+                "/AMI Bad",
+                dropbox_id="id:ami",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+            ),
+            make_folder(
+                "/Team Folder",
+                dropbox_id="id:team-folder-mount",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+            ),
+            make_folder(
+                "/Team Folder/Archive",
+                dropbox_id="id:web-archive",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+            ),
+            make_folder(
                 "/Archive",
-                dropbox_id="id:archive",
+                dropbox_id="id:raw-archive",
                 account_mode="team_admin",
                 namespace_id="ns-team-folder",
                 namespace_type="team_folder",
@@ -196,10 +227,12 @@ def test_team_folder_browser_lists_team_roots_and_children() -> None:
     service = DropboxFolderBrowserService(adapter, account_mode="team_admin", job_config=JobConfig(source_roots=["/"]))
 
     roots = service.list_folders(service.root_location())
-    children = service.list_folders(roots[0].location)
+    children = service.list_folders(next(folder.location for folder in roots if folder.display_path == "/Team Folder"))
+    advanced_roots = service.list_folders(service.advanced_team_root_location())
 
-    assert [folder.display_path for folder in roots] == ["/Team Folder"]
+    assert [folder.display_path for folder in roots] == ["/AMI Bad", "/Team Folder"]
     assert [folder.display_path for folder in children] == ["/Team Folder/Archive"]
+    assert [folder.display_path for folder in advanced_roots] == ["/", "/Team Folder"]
 
 
 def test_folder_browser_surfaces_api_failure() -> None:

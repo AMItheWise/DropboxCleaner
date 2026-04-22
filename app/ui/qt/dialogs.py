@@ -145,6 +145,16 @@ class DropboxFolderPickerDialog(QDialog):
         root.setData(0, Qt.ItemDataRole.UserRole + 1, False)
         root.addChild(QTreeWidgetItem(["Loading...", ""]))
         self.tree.addTopLevelItem(root)
+        if self._service.has_advanced_team_locations():
+            advanced = QTreeWidgetItem(["Advanced team locations", "Team namespaces"])
+            advanced.setToolTip(
+                0,
+                "Shows raw Dropbox team namespaces. Most users should choose folders from the Dropbox node above.",
+            )
+            advanced.setData(0, Qt.ItemDataRole.UserRole, self._service.advanced_team_root_location())
+            advanced.setData(0, Qt.ItemDataRole.UserRole + 1, False)
+            advanced.addChild(QTreeWidgetItem(["Loading...", ""]))
+            self.tree.addTopLevelItem(advanced)
         self.tree.setCurrentItem(root)
         self.tree.expandItem(root)
 

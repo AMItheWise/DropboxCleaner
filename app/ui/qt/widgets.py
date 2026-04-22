@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -103,10 +104,10 @@ class SafetyPanel(QFrame):
         heading.setObjectName("sectionTitle")
         layout.addWidget(heading)
         for line in (
-            "Original files are never deleted.",
-            "Original files are never moved.",
-            "Preview mode makes no Dropbox changes.",
-            "Every run writes reports and can be resumed.",
+            "Dropbox opens in your browser for approval.",
+            "No Dropbox password is requested.",
+            "Tokens are stored locally when possible.",
+            "No files are changed while connecting.",
         ):
             label = QLabel(f"- {line}")
             label.setObjectName("body")
@@ -163,6 +164,7 @@ class DonutChartWidget(QWidget):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(_ui_font(self, 10))
         rect = self.rect().adjusted(18, 18, -110, -18)
         size = min(rect.width(), rect.height())
         rect.setWidth(size)
@@ -170,6 +172,7 @@ class DonutChartWidget(QWidget):
         total = sum(item.value for item in self._slices)
         if total <= 0:
             painter.setPen(QColor(theme.MUTED))
+            painter.setFont(_ui_font(self, 10, QFont.Weight.Medium))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No copy results yet")
             return
         start = 90 * 16
@@ -184,6 +187,7 @@ class DonutChartWidget(QWidget):
         painter.setPen(QColor(theme.SOFT))
         painter.drawEllipse(inner)
         y = 42
+        painter.setFont(_ui_font(self, 9, QFont.Weight.DemiBold))
         for item in self._slices:
             painter.setBrush(QColor(item.color))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -210,7 +214,7 @@ class VerificationBarWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QColor(theme.INK))
-        painter.setFont(QFont("", 11, QFont.Weight.Bold))
+        painter.setFont(_ui_font(self, 11, QFont.Weight.Bold))
         painter.drawText(4, 18, "Source vs staged archive")
         max_value = max(self._source, self._staged, 1)
         self._bar(painter, 4, 42, self._source, max_value, "#BBDCD7", f"Matched source: {self._source}")
@@ -224,6 +228,7 @@ class VerificationBarWidget(QWidget):
         painter.setBrush(QColor(color))
         painter.drawRoundedRect(x, y, width, 24, 8, 8)
         painter.setPen(QColor(theme.INK))
+        painter.setFont(_ui_font(self, 10, QFont.Weight.DemiBold))
         painter.drawText(x + 10, y + 17, label)
 
 
@@ -235,7 +240,9 @@ class FolderTable(QTableWidget):
         self.setAlternatingRowColors(True)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in range(1, 5):
+            self.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
 
     def set_folders(self, folders: list[FolderResult]) -> None:
         self.setRowCount(len(folders))
@@ -256,7 +263,8 @@ class IssueTable(QTableWidget):
         self.verticalHeader().setVisible(False)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def set_result(self, result: ResultsViewModel) -> None:
         rows = [("Blocked", item) for item in result.blocked]
@@ -305,6 +313,13 @@ def _tone_color(tone: str) -> str:
         "warning": theme.WARNING,
         "danger": theme.DANGER,
     }.get(tone, theme.INK)
+
+
+def _ui_font(widget: QWidget, size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    font = QFont(widget.font())
+    font.setPointSize(size)
+    font.setWeight(weight)
+    return font
 
 
 def _phase_style(*, active: bool, completed: bool = False) -> str:
