@@ -27,6 +27,10 @@ def app_stylesheet() -> str:
         font-size: 14px;
     }}
 
+    QLabel {{
+        background: transparent;
+    }}
+
     QFrame#card, QWidget#card {{
         background: {SURFACE};
         border: 1px solid {BORDER};
@@ -71,6 +75,12 @@ def app_stylesheet() -> str:
         font-weight: 700;
     }}
 
+    QLabel#spinner {{
+        color: {ACCENT};
+        font-size: 18px;
+        font-weight: 900;
+    }}
+
     QPushButton {{
         background: {SURFACE};
         color: {INK};
@@ -83,6 +93,19 @@ def app_stylesheet() -> str:
     QPushButton:hover {{
         background: #EEF7F5;
         border-color: #B9D7D2;
+    }}
+
+    QPushButton:pressed {{
+        background: #DDEBE8;
+        border-color: {ACCENT};
+        padding-top: 12px;
+        padding-bottom: 8px;
+    }}
+
+    QPushButton:checked {{
+        background: {ACCENT};
+        color: white;
+        border-color: {ACCENT};
     }}
 
     QPushButton:disabled {{
@@ -102,10 +125,25 @@ def app_stylesheet() -> str:
         border-color: {ACCENT_DARK};
     }}
 
+    QPushButton[role="primary"]:pressed {{
+        background: #0B4752;
+        border-color: #0B4752;
+    }}
+
     QPushButton[role="success"] {{
         background: {SUCCESS};
         color: white;
         border-color: {SUCCESS};
+    }}
+
+    QPushButton[role="success"]:hover {{
+        background: #246A4D;
+        border-color: #246A4D;
+    }}
+
+    QPushButton[role="success"]:pressed {{
+        background: #1D573F;
+        border-color: #1D573F;
     }}
 
     QPushButton[role="danger"] {{
@@ -114,10 +152,30 @@ def app_stylesheet() -> str:
         background: #FFF8F8;
     }}
 
+    QPushButton[role="danger"]:hover {{
+        background: #FCECEC;
+        border-color: #DBA9A9;
+    }}
+
+    QPushButton[role="danger"]:pressed {{
+        background: #F4DADA;
+        border-color: {DANGER};
+    }}
+
     QPushButton[role="ghost"] {{
         color: {ACCENT};
         border-color: transparent;
         background: transparent;
+    }}
+
+    QPushButton[role="ghost"]:hover {{
+        color: {ACCENT_DARK};
+        background: #E6F2EF;
+        border-color: #D1E5E1;
+    }}
+
+    QPushButton[role="ghost"]:pressed {{
+        background: #D5E9E5;
     }}
 
     QPushButton[role="selectedCard"] {{
@@ -127,6 +185,16 @@ def app_stylesheet() -> str:
         text-align: left;
     }}
 
+    QPushButton[role="selectedCard"]:hover {{
+        background: {ACCENT_DARK};
+        border-color: {ACCENT_DARK};
+    }}
+
+    QPushButton[role="selectedCard"]:pressed {{
+        background: #0B4752;
+        border-color: #0B4752;
+    }}
+
     QPushButton[role="card"] {{
         background: {SURFACE};
         color: {INK};
@@ -134,6 +202,16 @@ def app_stylesheet() -> str:
         text-align: left;
         padding: 18px;
         border-radius: 16px;
+    }}
+
+    QPushButton[role="card"]:hover {{
+        background: #EEF8F5;
+        border-color: {ACCENT};
+    }}
+
+    QPushButton[role="card"]:pressed {{
+        background: #DDEFEA;
+        border-color: {ACCENT_DARK};
     }}
 
     QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox {{
@@ -202,4 +280,3 @@ def set_role(widget: QWidget, role: str) -> None:
     widget.setProperty("role", role)
     widget.style().unpolish(widget)
     widget.style().polish(widget)
-

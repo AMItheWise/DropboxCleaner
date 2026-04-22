@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,21 @@ def test_qt_gui_entry_imports() -> None:
     from app.ui.main import main
 
     assert callable(main)
+
+
+def test_qt_main_window_instantiates_with_guarded_continue() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from app.ui.qt.main_window import DropboxCleanerMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = DropboxCleanerMainWindow()
+
+    assert app is not None
+    assert not window.connection_screen.continue_button.isEnabled()
+
+    window.close()
 
 
 def test_friendly_choice_mappings() -> None:

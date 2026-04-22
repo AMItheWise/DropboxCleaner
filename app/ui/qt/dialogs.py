@@ -69,6 +69,7 @@ class DropboxFolderPickerDialog(QDialog):
         self.selected_path: str | None = None
         self._purpose = purpose
         self._threads: list[QThread] = []
+        self._workers: list[FolderLoadWorker] = []
         self._logger = logging.getLogger("dropbox_cleaner.ui.folder_picker")
         self._logger.addHandler(logging.NullHandler())
         self._adapter = DropboxAdapter(auth_config, self._logger)
@@ -172,7 +173,9 @@ class DropboxFolderPickerDialog(QDialog):
         worker.signals.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda thread=thread: self._threads.remove(thread) if thread in self._threads else None)
+        thread.finished.connect(lambda worker=worker: self._workers.remove(worker) if worker in self._workers else None)
         self._threads.append(thread)
+        self._workers.append(worker)
         thread.start()
 
     def _apply_children(self, item: QTreeWidgetItem, folders: list[BrowserFolder]) -> None:
@@ -221,4 +224,3 @@ def choose_local_output_dir(parent: QWidget | None, current: str) -> str | None:
 
     selected = QFileDialog.getExistingDirectory(parent, "Choose output folder", str(Path(current).expanduser()))
     return selected or None
-

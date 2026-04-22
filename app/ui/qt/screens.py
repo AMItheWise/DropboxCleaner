@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtCore import QDate, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
-    QStackedLayout,
     QVBoxLayout,
     QWidget,
 )
@@ -106,6 +105,7 @@ class AccountScreen(QWidget):
 
 
 class ConnectionScreen(QWidget):
+    back_requested = Signal()
     start_oauth_requested = Signal()
     finish_oauth_requested = Signal()
     test_connection_requested = Signal()
@@ -116,6 +116,12 @@ class ConnectionScreen(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._account_mode = "personal"
+        self._connected = False
+        self._spinner_index = 0
+        self._spinner_frames = ("|", "/", "-", "\\")
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(120)
+        self._spinner_timer.timeout.connect(self._advance_spinner)
         layout = QGridLayout(self)
         layout.setContentsMargins(34, 28, 34, 34)
         layout.setSpacing(20)
@@ -133,26 +139,50 @@ class ConnectionScreen(QWidget):
         )
         main_layout.addWidget(self.title_block)
 
+        back_row = QHBoxLayout()
+        self.back_button = QPushButton("Back")
+        theme.set_role(self.back_button, "ghost")
+        self.back_button.clicked.connect(self.back_requested.emit)
+        back_row.addWidget(self.back_button)
+        back_row.addStretch(1)
+        main_layout.addLayout(back_row)
+
         self.app_key_label = QLabel("Dropbox app key")
         main_layout.addWidget(self.app_key_label)
         self.app_key_edit = QLineEdit()
         self.app_key_edit.setPlaceholderText("Paste your Dropbox app key")
         main_layout.addWidget(self.app_key_edit)
 
-        connect_button = QPushButton("Connect Dropbox")
-        theme.set_role(connect_button, "primary")
-        connect_button.clicked.connect(self.start_oauth_requested.emit)
-        main_layout.addWidget(connect_button)
+        self.connect_button = QPushButton("Connect Dropbox")
+        theme.set_role(self.connect_button, "primary")
+        self.connect_button.clicked.connect(self.start_oauth_requested.emit)
+        main_layout.addWidget(self.connect_button)
 
         main_layout.addWidget(QLabel("Authorization code"))
         self.auth_code_edit = QLineEdit()
         self.auth_code_edit.setPlaceholderText("Paste the code Dropbox gives you")
         main_layout.addWidget(self.auth_code_edit)
 
-        finish_button = QPushButton("Finish connection")
-        theme.set_role(finish_button, "success")
-        finish_button.clicked.connect(self.finish_oauth_requested.emit)
-        main_layout.addWidget(finish_button)
+        self.finish_button = QPushButton("Finish connection")
+        theme.set_role(self.finish_button, "success")
+        self.finish_button.clicked.connect(self.finish_oauth_requested.emit)
+        main_layout.addWidget(self.finish_button)
+
+        busy_row = QHBoxLayout()
+        self.spinner_label = QLabel("|")
+        self.spinner_label.setObjectName("spinner")
+        self.spinner_label.setFixedWidth(24)
+        self.busy_label = QLabel("Testing Dropbox connection...")
+        self.busy_label.setObjectName("body")
+        self.connection_progress = QProgressBar()
+        self.connection_progress.setRange(0, 0)
+        self.connection_progress.setTextVisible(False)
+        busy_row.addWidget(self.spinner_label)
+        busy_row.addWidget(self.busy_label)
+        busy_row.addWidget(self.connection_progress, 1)
+        main_layout.addLayout(busy_row)
+        self._busy_widgets = [self.spinner_label, self.busy_label, self.connection_progress]
+        self.set_busy(False)
 
         self.status_label = QLabel("Not connected yet.")
         self.status_label.setObjectName("body")
@@ -160,13 +190,13 @@ class ConnectionScreen(QWidget):
         main_layout.addWidget(self.status_label)
 
         actions = QHBoxLayout()
-        test_button = QPushButton("Test saved connection")
-        test_button.clicked.connect(self.test_connection_requested.emit)
-        disconnect_button = QPushButton("Disconnect")
-        theme.set_role(disconnect_button, "danger")
-        disconnect_button.clicked.connect(self.disconnect_requested.emit)
-        actions.addWidget(test_button)
-        actions.addWidget(disconnect_button)
+        self.test_button = QPushButton("Test saved connection")
+        self.test_button.clicked.connect(self.test_connection_requested.emit)
+        self.disconnect_button = QPushButton("Disconnect")
+        theme.set_role(self.disconnect_button, "danger")
+        self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
+        actions.addWidget(self.test_button)
+        actions.addWidget(self.disconnect_button)
         main_layout.addLayout(actions)
 
         self.advanced = QGroupBox("Advanced connection options")
@@ -180,18 +210,19 @@ class ConnectionScreen(QWidget):
         self.admin_member_id_edit = QLineEdit()
         self.admin_member_id_edit.setPlaceholderText("Optional admin member ID override")
         advanced_layout.addWidget(self.admin_member_id_edit)
-        save_token_button = QPushButton("Save token and test")
-        save_token_button.clicked.connect(self.save_token_requested.emit)
-        advanced_layout.addWidget(save_token_button)
-        self._advanced_widgets = [self.token_edit, self.admin_member_id_edit, save_token_button]
+        self.save_token_button = QPushButton("Save token and test")
+        self.save_token_button.clicked.connect(self.save_token_requested.emit)
+        advanced_layout.addWidget(self.save_token_button)
+        self._advanced_widgets = [self.token_edit, self.admin_member_id_edit, self.save_token_button]
         self.advanced.toggled.connect(self._set_advanced_visible)
         main_layout.addWidget(self.advanced)
         self._set_advanced_visible(False)
 
-        continue_button = QPushButton("Continue to settings")
-        theme.set_role(continue_button, "primary")
-        continue_button.clicked.connect(self.continue_requested.emit)
-        main_layout.addWidget(continue_button)
+        self.continue_button = QPushButton("Continue to settings")
+        theme.set_role(self.continue_button, "primary")
+        self.continue_button.clicked.connect(self.continue_requested.emit)
+        self.continue_button.setEnabled(False)
+        main_layout.addWidget(self.continue_button)
         layout.addWidget(main, 0, 0)
 
         side = SafetyPanel()
@@ -216,6 +247,36 @@ class ConnectionScreen(QWidget):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {theme.SUCCESS if success else theme.MUTED}; background: transparent;")
 
+    def set_connected(self, connected: bool) -> None:
+        self._connected = connected
+        self.continue_button.setEnabled(connected)
+
+    def set_busy(self, busy: bool) -> None:
+        for widget in getattr(self, "_busy_widgets", []):
+            widget.setVisible(busy)
+        continue_button = getattr(self, "continue_button", None)
+        for widget in (
+            getattr(self, "back_button", None),
+            getattr(self, "connect_button", None),
+            getattr(self, "finish_button", None),
+            getattr(self, "test_button", None),
+            getattr(self, "disconnect_button", None),
+            getattr(self, "save_token_button", None),
+            getattr(self, "continue_button", None),
+        ):
+            if widget is not None:
+                widget.setEnabled(not busy and (widget is not continue_button or self._connected))
+        if busy:
+            self._spinner_index = 0
+            self.spinner_label.setText(self._spinner_frames[self._spinner_index])
+            self._spinner_timer.start()
+        else:
+            self._spinner_timer.stop()
+
+    def _advance_spinner(self) -> None:
+        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+        self.spinner_label.setText(self._spinner_frames[self._spinner_index])
+
     def _set_advanced_visible(self, visible: bool) -> None:
         for widget in self._advanced_widgets:
             widget.setVisible(visible)
@@ -223,6 +284,7 @@ class ConnectionScreen(QWidget):
 
 
 class SettingsScreen(QWidget):
+    back_requested = Signal()
     browse_archive_requested = Signal()
     browse_source_requested = Signal()
     browse_output_requested = Signal()
@@ -258,6 +320,13 @@ class SettingsScreen(QWidget):
                 "Pick the cutoff date and archive folder. Originals always stay where they are.",
             )
         )
+        back_row = QHBoxLayout()
+        self.back_button = QPushButton("Back")
+        theme.set_role(self.back_button, "ghost")
+        self.back_button.clicked.connect(self.back_requested.emit)
+        back_row.addWidget(self.back_button)
+        back_row.addStretch(1)
+        self.content_layout.addLayout(back_row)
         self._build_date_card()
         self._build_archive_card()
         self._build_source_card()

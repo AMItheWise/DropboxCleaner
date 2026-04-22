@@ -39,6 +39,8 @@ class DropboxCleanerMainWindow(QMainWindow):
         self.current_run_result: RunResult | None = None
         self.cancellation_token: CancellationToken | None = None
         self._threads: list[QThread] = []
+        self._workers: list[object] = []
+        self._connection_verified = False
         self._connected_account_summary = "Not connected yet."
         self._packaged_key = self._packaged_app_key()
 
@@ -74,9 +76,11 @@ class DropboxCleanerMainWindow(QMainWindow):
         self.connection_screen.finish_oauth_requested.connect(self.finish_oauth)
         self.connection_screen.test_connection_requested.connect(self.test_saved_connection)
         self.connection_screen.disconnect_requested.connect(self.clear_saved_credentials)
-        self.connection_screen.continue_requested.connect(lambda: self.stack.setCurrentWidget(self.settings_screen))
+        self.connection_screen.back_requested.connect(lambda: self.stack.setCurrentWidget(self.account_screen))
+        self.connection_screen.continue_requested.connect(self._continue_to_settings)
         self.connection_screen.save_token_requested.connect(self.save_manual_token)
 
+        self.settings_screen.back_requested.connect(lambda: self.stack.setCurrentWidget(self.connection_screen))
         self.settings_screen.browse_archive_requested.connect(lambda: self.open_folder_picker("archive"))
         self.settings_screen.browse_source_requested.connect(lambda: self.open_folder_picker("source"))
         self.settings_screen.browse_output_requested.connect(self.choose_output_dir)
@@ -93,8 +97,13 @@ class DropboxCleanerMainWindow(QMainWindow):
         self.results_screen.start_another_requested.connect(lambda: self.stack.setCurrentWidget(self.settings_screen))
 
     def _select_account_mode(self, value: str) -> None:
+        mode_changed = value != self.account_mode
         self.account_mode = value
         self.connection_screen.set_account_mode(value)
+        if mode_changed:
+            self._connection_verified = False
+            self.connection_screen.set_connected(False)
+        self.connection_screen.set_busy(False)
         self.settings_screen.set_account_mode(value)
         self.stack.setCurrentWidget(self.connection_screen)
 
@@ -104,6 +113,8 @@ class DropboxCleanerMainWindow(QMainWindow):
             self._show_simple_error("Missing app key", "Enter your Dropbox app key first.")
             return
         try:
+            self._connection_verified = False
+            self.connection_screen.set_connected(False)
             authorize_url = self.auth_manager.start_pkce_flow(
                 app_key,
                 default_scopes_for_mode(self.account_mode),
@@ -158,21 +169,28 @@ class DropboxCleanerMainWindow(QMainWindow):
             self._show_error("Connection failed", exc)
 
     def _test_connection_from_config(self, auth_config: AuthConfig) -> None:
+        self._connection_verified = False
+        self.connection_screen.set_connected(False)
+        self.connection_screen.set_busy(True)
         worker = ConnectionTestWorker(auth_manager=self.auth_manager, auth_config=auth_config, logger=self._temporary_logger())
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.signals.result.connect(self._connection_test_succeeded)
-        worker.signals.error.connect(lambda message, details: ErrorDetailsDialog("Connection failed", message, details, self).exec())
+        worker.signals.error.connect(self._connection_test_failed)
         worker.signals.finished.connect(thread.quit)
         worker.signals.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda thread=thread: self._threads.remove(thread) if thread in self._threads else None)
+        thread.finished.connect(lambda worker=worker: self._workers.remove(worker) if worker in self._workers else None)
         self._threads.append(thread)
+        self._workers.append(worker)
         self.connection_screen.set_status("Testing Dropbox connection...")
         thread.start()
 
     def _connection_test_succeeded(self, account: AccountInfo) -> None:
+        self.connection_screen.set_busy(False)
+        self._connection_verified = True
         self.account_mode = account.account_mode
         self.connection_screen.set_account_mode(self.account_mode)
         self.settings_screen.set_account_mode(self.account_mode)
@@ -188,13 +206,33 @@ class DropboxCleanerMainWindow(QMainWindow):
             summary = f"Connected as {account.display_name} ({account.email or 'no email returned'})"
         self._connected_account_summary = summary
         self.connection_screen.set_status(summary, success=True)
+        self.connection_screen.set_connected(True)
+
+    def _connection_test_failed(self, message: str, details: str) -> None:
+        self.connection_screen.set_busy(False)
+        self._connection_verified = False
+        self.connection_screen.set_connected(False)
+        self.connection_screen.set_status("Connection test failed. Review the details and try again.")
+        ErrorDetailsDialog("Connection failed", self._format_exception_for_user(message), details, self).exec()
 
     def clear_saved_credentials(self) -> None:
         self.auth_manager.clear_credentials("default")
         self.connection_screen.auth_code_edit.clear()
         self.connection_screen.token_edit.clear()
+        self._connection_verified = False
         self._connected_account_summary = "Saved connection removed. Connect Dropbox again to continue."
         self.connection_screen.set_status(self._connected_account_summary)
+        self.connection_screen.set_connected(False)
+
+    def _continue_to_settings(self) -> None:
+        if not self._connection_verified:
+            QMessageBox.information(
+                self,
+                "Connect Dropbox first",
+                "Finish authorization or test the saved connection before continuing.",
+            )
+            return
+        self.stack.setCurrentWidget(self.settings_screen)
 
     def choose_output_dir(self) -> None:
         selected = choose_local_output_dir(self, self.settings_screen.output_dir)
@@ -273,7 +311,9 @@ class DropboxCleanerMainWindow(QMainWindow):
         worker.signals.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda thread=thread: self._threads.remove(thread) if thread in self._threads else None)
+        thread.finished.connect(lambda worker=worker: self._workers.remove(worker) if worker in self._workers else None)
         self._threads.append(thread)
+        self._workers.append(worker)
         thread.start()
 
     def resume_last_run(self) -> None:
@@ -390,6 +430,7 @@ class DropboxCleanerMainWindow(QMainWindow):
             self.connection_screen.admin_member_id_edit.setText(saved.admin_member_id)
         self._connected_account_summary = "Saved Dropbox connection found. Continue or reconnect if needed."
         self.connection_screen.set_status(self._connected_account_summary)
+        self.connection_screen.set_connected(False)
 
     def _load_latest_run_hint(self) -> None:
         latest_pointer = Path(self.settings_screen.output_dir) / "latest_run.json"
@@ -468,4 +509,3 @@ def run_app() -> int:
     if owns_app:
         return int(app.exec())
     return 0
-
