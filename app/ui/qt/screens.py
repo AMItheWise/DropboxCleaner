@@ -51,6 +51,7 @@ from app.ui.qt.widgets import (
     clear_layout,
     metrics_grid,
 )
+from app.utils.paths import normalize_dropbox_path
 
 
 class AccountScreen(QWidget):
@@ -153,16 +154,18 @@ class ConnectionScreen(QWidget):
         saved_title = QLabel("Saved Dropbox connection")
         saved_title.setObjectName("sectionTitle")
         self.saved_summary_label = QLabel(
-            "A saved Dropbox connection was found. Test it before continuing."
+            "Use the Dropbox authorization saved on this computer, or reconnect if you need a different account or new permissions."
         )
         self.saved_summary_label.setObjectName("body")
         self.saved_summary_label.setWordWrap(True)
         saved_actions = QHBoxLayout()
         self.use_saved_button = QPushButton("Use saved connection")
+        self.use_saved_button.setToolTip("Test the locally saved Dropbox authorization and continue if it is still valid.")
         theme.set_role(self.use_saved_button, "primary")
         self.use_saved_button.clicked.connect(self.test_connection_requested.emit)
         self.reconnect_button = QPushButton("Reconnect")
         theme.set_role(self.reconnect_button, "ghost")
+        self.reconnect_button.setToolTip("Start Dropbox authorization again for a different account or updated permissions.")
         self.reconnect_button.clicked.connect(self._show_reconnect_form)
         saved_actions.addWidget(self.use_saved_button)
         saved_actions.addWidget(self.reconnect_button)
@@ -222,6 +225,24 @@ class ConnectionScreen(QWidget):
         self.status_label.setObjectName("body")
         self.status_label.setWordWrap(True)
         main_layout.addWidget(self.status_label)
+
+        self.account_status_card = card_frame("successCard")
+        account_status_layout = QVBoxLayout(self.account_status_card)
+        account_status_layout.setContentsMargins(18, 18, 18, 18)
+        account_status_layout.setSpacing(12)
+        self.account_status_title = QLabel("Connected to Dropbox")
+        self.account_status_title.setObjectName("sectionTitle")
+        self.account_status_body = QLabel("Connection verified. You can continue to settings.")
+        self.account_status_body.setObjectName("body")
+        self.account_status_body.setWordWrap(True)
+        self.account_details_layout = QGridLayout()
+        self.account_details_layout.setHorizontalSpacing(18)
+        self.account_details_layout.setVerticalSpacing(8)
+        account_status_layout.addWidget(self.account_status_title)
+        account_status_layout.addWidget(self.account_status_body)
+        account_status_layout.addLayout(self.account_details_layout)
+        self.account_status_card.hide()
+        main_layout.addWidget(self.account_status_card)
 
         actions = QHBoxLayout()
         self.test_button = QPushButton("Test saved connection")
@@ -308,10 +329,62 @@ class ConnectionScreen(QWidget):
     def set_status(self, text: str, success: bool = False) -> None:
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {theme.SUCCESS if success else theme.MUTED}; background: transparent;")
+        self.status_label.setVisible(bool(text) and not success)
+        if not success:
+            self.account_status_card.hide()
+
+    def set_account_status(
+        self,
+        *,
+        display_name: str,
+        email: str | None = None,
+        account_mode: str = "personal",
+        team_name: str | None = None,
+        team_model: str | None = None,
+        active_member_count: int | None = None,
+        namespace_count: int | None = None,
+    ) -> None:
+        clear_layout(self.account_details_layout)
+        mode_label = "Team admin" if account_mode == "team_admin" else "Personal"
+        self.account_status_body.setText(
+            "Team-admin access is verified. Dropbox Cleaner can now scan the selected team coverage."
+            if account_mode == "team_admin"
+            else "Personal Dropbox access is verified. Dropbox Cleaner can now scan selected folders."
+        )
+        fields: list[tuple[str, str]] = [
+            ("Account", display_name or "Unknown"),
+            ("Mode", mode_label),
+        ]
+        if email:
+            fields.insert(1, ("Email", email))
+        if account_mode == "team_admin":
+            fields.extend(
+                [
+                    ("Team", team_name or "Unknown"),
+                    ("Team model", team_model or "Unknown"),
+                    ("Active members", str(active_member_count if active_member_count is not None else "Unknown")),
+                    ("Namespaces", str(namespace_count if namespace_count is not None else "Unknown")),
+                ]
+            )
+        for index, (label, value) in enumerate(fields):
+            label_widget = QLabel(label)
+            label_widget.setObjectName("statusLabel")
+            value_widget = QLabel(value)
+            value_widget.setObjectName("statusValue")
+            value_widget.setWordWrap(True)
+            row = index // 2
+            column = (index % 2) * 2
+            self.account_details_layout.addWidget(label_widget, row, column)
+            self.account_details_layout.addWidget(value_widget, row, column + 1)
+        self.status_label.hide()
+        self.saved_panel.hide()
+        self.account_status_card.show()
 
     def set_connected(self, connected: bool) -> None:
         self._connected = connected
         self.continue_button.setEnabled(connected)
+        if not connected:
+            self.account_status_card.hide()
 
     def set_busy(self, busy: bool) -> None:
         for widget in getattr(self, "_busy_widgets", []):
@@ -351,6 +424,7 @@ class SettingsScreen(QWidget):
     back_requested = Signal()
     browse_archive_requested = Signal()
     browse_source_requested = Signal()
+    browse_exclusion_requested = Signal()
     browse_output_requested = Signal()
     start_run_requested = Signal()
     resume_requested = Signal()
@@ -359,6 +433,7 @@ class SettingsScreen(QWidget):
         super().__init__()
         self._account_mode = "personal"
         self._source_roots = ["/"]
+        self._excluded_roots: list[str] = []
         self._selected_run_mode = "dry_run"
 
         root_layout = QGridLayout(self)
@@ -394,6 +469,7 @@ class SettingsScreen(QWidget):
         self._build_date_card()
         self._build_archive_card()
         self._build_source_card()
+        self._build_exclusions_card()
         self._build_output_card()
         self._build_advanced_card()
         self.content_layout.addStretch(1)
@@ -491,6 +567,36 @@ class SettingsScreen(QWidget):
         self.content_layout.addWidget(self.source_card)
         self.content_layout.addWidget(self.team_card)
 
+    def _build_exclusions_card(self) -> None:
+        self.exclusions_card = _settings_card(
+            "Folders to skip",
+            "Optional: choose folders that should not be inventoried or copied into the archive.",
+        )
+        layout = self.exclusions_card.layout()
+        self.exclusions_list = QListWidget()
+        self.exclusions_list.setMinimumHeight(90)
+        layout.addWidget(self.exclusions_list)
+
+        typed_row = QHBoxLayout()
+        self.exclude_path_edit = QLineEdit()
+        self.exclude_path_edit.setPlaceholderText("Type a Dropbox path, for example /Screenshots")
+        typed_row.addWidget(self.exclude_path_edit, 1)
+        add_typed = QPushButton("Add typed path")
+        add_typed.clicked.connect(self._add_typed_exclusion)
+        typed_row.addWidget(add_typed)
+        layout.addLayout(typed_row)
+
+        button_row = QHBoxLayout()
+        browse = QPushButton("Browse Dropbox")
+        browse.clicked.connect(self.browse_exclusion_requested.emit)
+        remove = QPushButton("Remove selected")
+        remove.clicked.connect(self._remove_selected_exclusion)
+        button_row.addWidget(browse)
+        button_row.addWidget(remove)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+        self.content_layout.addWidget(self.exclusions_card)
+
     def _build_output_card(self) -> None:
         card = _settings_card("Local reports folder", "CSV files, logs, summaries, and state are written locally.")
         layout = card.layout()
@@ -560,10 +666,19 @@ class SettingsScreen(QWidget):
     def source_roots(self) -> list[str]:
         return list(self._source_roots)
 
+    def excluded_roots(self) -> list[str]:
+        return list(self._excluded_roots)
+
     def add_source_root(self, root: str) -> None:
         if root not in self._source_roots:
             self._source_roots.append(root)
         self._render_source_roots()
+
+    def add_excluded_root(self, root: str) -> None:
+        normalized = normalize_dropbox_path(root)
+        if normalized != "/" and normalized not in self._excluded_roots:
+            self._excluded_roots.append(normalized)
+        self._render_excluded_roots()
 
     def _remove_selected_source(self) -> None:
         row = self.source_list.currentRow()
@@ -573,10 +688,25 @@ class SettingsScreen(QWidget):
             self._source_roots = ["/"]
         self._render_source_roots()
 
+    def _remove_selected_exclusion(self) -> None:
+        row = self.exclusions_list.currentRow()
+        if row >= 0:
+            self._excluded_roots.pop(row)
+        self._render_excluded_roots()
+
+    def _add_typed_exclusion(self) -> None:
+        self.add_excluded_root(self.exclude_path_edit.text())
+        self.exclude_path_edit.clear()
+
     def _render_source_roots(self) -> None:
         self.source_list.clear()
         for root in self._source_roots:
             self.source_list.addItem(QListWidgetItem(root))
+
+    def _render_excluded_roots(self) -> None:
+        self.exclusions_list.clear()
+        for root in self._excluded_roots:
+            self.exclusions_list.addItem(QListWidgetItem(root))
 
     def _select_run_mode(self, value: str) -> None:
         self._selected_run_mode = value

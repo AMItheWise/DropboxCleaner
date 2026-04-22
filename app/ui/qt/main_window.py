@@ -83,6 +83,7 @@ class DropboxCleanerMainWindow(QMainWindow):
         self.settings_screen.back_requested.connect(lambda: self.stack.setCurrentWidget(self.connection_screen))
         self.settings_screen.browse_archive_requested.connect(lambda: self.open_folder_picker("archive"))
         self.settings_screen.browse_source_requested.connect(lambda: self.open_folder_picker("source"))
+        self.settings_screen.browse_exclusion_requested.connect(lambda: self.open_folder_picker("exclude"))
         self.settings_screen.browse_output_requested.connect(self.choose_output_dir)
         self.settings_screen.start_run_requested.connect(self.start_run_from_settings)
         self.settings_screen.resume_requested.connect(self.resume_last_run)
@@ -206,7 +207,15 @@ class DropboxCleanerMainWindow(QMainWindow):
         else:
             summary = f"Connected as {account.display_name} ({account.email or 'no email returned'})"
         self._connected_account_summary = summary
-        self.connection_screen.set_status(summary, success=True)
+        self.connection_screen.set_account_status(
+            display_name=account.display_name,
+            email=account.email,
+            account_mode=account.account_mode,
+            team_name=account.team_name,
+            team_model=account.team_model,
+            active_member_count=account.active_member_count,
+            namespace_count=account.namespace_count,
+        )
         self.connection_screen.set_connected(True)
 
     def _connection_test_failed(self, message: str, details: str) -> None:
@@ -261,6 +270,8 @@ class DropboxCleanerMainWindow(QMainWindow):
             return
         if purpose == "archive":
             self.settings_screen.archive_edit.setText(dialog.selected_path)
+        elif purpose == "exclude":
+            self.settings_screen.add_excluded_root(dialog.selected_path)
         else:
             self.settings_screen.add_source_root(dialog.selected_path)
 
@@ -392,6 +403,7 @@ class DropboxCleanerMainWindow(QMainWindow):
     def _build_job_config(self, mode: str) -> JobConfig:
         return JobConfig(
             source_roots=self.settings_screen.source_roots() or ["/"],
+            excluded_roots=self.settings_screen.excluded_roots(),
             cutoff_date=self.settings_screen.cutoff_date,
             date_filter_field=date_filter_label_to_value(self.settings_screen.date_filter_label),
             archive_root=self.settings_screen.archive_root,
@@ -433,7 +445,7 @@ class DropboxCleanerMainWindow(QMainWindow):
         self._connected_account_summary = "Saved Dropbox connection found. Test it before continuing."
         self.connection_screen.set_saved_credentials_available(
             True,
-            "A saved Dropbox connection was found for this account. Test it before continuing.",
+            "Use the Dropbox authorization saved on this computer, or reconnect if you need a different account or new permissions.",
         )
         self.connection_screen.set_status(self._connected_account_summary)
         self.connection_screen.set_connected(False)

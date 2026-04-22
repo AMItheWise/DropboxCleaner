@@ -16,6 +16,10 @@ auth:
 job:
   source_roots:
     - /
+  excluded_roots: []
+  # Add Dropbox folders to skip during inventory and copy planning, for example:
+  # excluded_roots:
+  #   - /Screenshots
   cutoff_date: "2020-05-01"
   # Options: server_modified, client_modified, oldest_modified.
   # Use client_modified/oldest_modified when Dropbox shows old file dates but API server_modified is recent.

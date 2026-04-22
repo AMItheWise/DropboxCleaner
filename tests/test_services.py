@@ -518,6 +518,79 @@ def test_archive_destination_exclusion(tmp_path: Path) -> None:
     assert [row["full_path"] for row in rows] == ["/Keep/file.txt"]
 
 
+def test_user_excluded_folder_is_not_inventoried(tmp_path: Path) -> None:
+    backend = FakeDropboxBackend(
+        [
+            make_folder("/SkipMe", dropbox_id="id:skip-folder"),
+            make_file("/SkipMe/old.txt", dropbox_id="id:skip-old"),
+            make_file("/Keep/old.txt", dropbox_id="id:keep-old"),
+        ],
+        page_size=10,
+    )
+    adapter = FakeDropboxAdapter(AuthConfig(method="access_token", access_token="token"), make_logger("exclude.user"), backend)
+    run_context, repository = make_run_context(tmp_path, "inventory_only")
+    job_config = JobConfig(
+        source_roots=["/"],
+        excluded_roots=["/SkipMe"],
+        output_dir=tmp_path,
+        mode="inventory_only",
+    )
+    DropboxInventoryService(repository, make_logger("inventory.exclude.user")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=job_config,
+        source_roots=["/"],
+        planner=ArchivePlanner("/Archive_PreMay2020", excluded_roots=job_config.excluded_roots),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+
+    rows = list(repository.iter_inventory_records(run_context.run_id))
+    assert [row["full_path"] for row in rows] == ["/Keep/old.txt"]
+
+
+def test_user_excluded_copy_job_is_skipped(tmp_path: Path) -> None:
+    run_context, repository = make_run_context(tmp_path, "copy_run")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": "/SkipMe/old.txt",
+                "dropbox_id": "id:skip-old",
+                "size": 5,
+                "server_modified": "2019-01-01T00:00:00Z",
+                "client_modified": "2019-01-01T00:00:00Z",
+                "content_hash": "hash-skip-old",
+            }
+        ],
+    )
+    FilterService(repository, make_logger("filter.exclude.copy")).run(
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020"),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+    backend = FakeDropboxBackend([make_file("/SkipMe/old.txt", dropbox_id="id:skip-old", content_hash="hash-skip-old")], page_size=10)
+    adapter = FakeDropboxAdapter(AuthConfig(method="access_token", access_token="token"), make_logger("copy.exclude.user"), backend)
+    ArchiveCopyService(repository, make_logger("copy.exclude.user")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], excluded_roots=["/SkipMe"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020", excluded_roots=["/SkipMe"]),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        dry_run=False,
+    )
+
+    manifest = list(repository.manifest_rows(run_context.run_id))
+    assert manifest[0].status == "excluded"
+    assert backend.copy_calls == []
+    assert repository.get_counters(run_context.run_id)["files_skipped"] == 1
+
+
 def test_team_inventory_uses_namespace_context(tmp_path: Path) -> None:
     team_discovery = make_team_discovery()
     backend = FakeDropboxBackend(
@@ -567,6 +640,83 @@ def test_team_inventory_uses_namespace_context(tmp_path: Path) -> None:
     rows = list(repository.iter_inventory_records(run_context.run_id))
     assert {row["canonical_source_path"] for row in rows} == {"ns:ns-root/root-plan.docx", "ns:ns-home-alice/Projects/old.psd"}
     assert {row["archive_bucket"] for row in rows} == {"team_space", "member_homes"}
+
+
+def test_team_namespace_display_folder_can_be_excluded(tmp_path: Path) -> None:
+    team_discovery = replace(
+        make_team_discovery(),
+        traversal_roots=[
+            *make_team_discovery().traversal_roots,
+            TraversalRoot(
+                root_key="namespace::ns-screenshots",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="shared_folder",
+                namespace_name="Screenshots",
+                archive_bucket="shared_namespaces",
+                canonical_root="ns:ns-screenshots",
+                include_mounted_folders=True,
+            ),
+        ],
+    )
+    backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/old.png",
+                dropbox_id="id:old-screenshot",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="shared_folder",
+                namespace_name="Screenshots",
+                archive_bucket="shared_namespaces",
+            ),
+            make_file(
+                "/Projects/old.psd",
+                dropbox_id="id:alice-old",
+                account_mode="team_admin",
+                namespace_id="ns-home-alice",
+                namespace_type="team_member_folder",
+                namespace_name="Alice Home",
+                member_id="dbmid:alice",
+                member_email="alice@example.com",
+                member_display_name="Alice",
+                archive_bucket="member_homes",
+            ),
+        ],
+        page_size=10,
+        account=team_discovery.account_info,
+        team_discovery=team_discovery,
+    )
+    adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("team.inventory.exclude"),
+        backend,
+    )
+    run_context, repository = make_run_context(tmp_path, "inventory_only", "team_admin")
+    job_config = JobConfig(
+        source_roots=["/"],
+        excluded_roots=["/Screenshots"],
+        output_dir=tmp_path,
+        mode="inventory_only",
+    )
+    DropboxInventoryService(repository, make_logger("team.inventory.exclude")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=job_config,
+        source_roots=["/"],
+        planner=ArchivePlanner(
+            "/Archive_PreMay2020",
+            account_mode="team_admin",
+            excluded_roots=job_config.excluded_roots,
+        ).with_team_discovery(team_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        traversal_roots=team_discovery.traversal_roots,
+    )
+
+    rows = list(repository.iter_inventory_records(run_context.run_id))
+    assert {row["canonical_source_path"] for row in rows} == {"ns:ns-home-alice/Projects/old.psd"}
 
 
 def test_manifest_statuses_for_existing_same_and_conflict(tmp_path: Path) -> None:

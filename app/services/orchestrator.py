@@ -48,6 +48,8 @@ class RunOrchestrator:
                 job_config.source_roots = ["/"]
 
         job_config.archive_root = normalize_dropbox_path(job_config.archive_root)
+        excluded_roots, ignored_excluded_roots = dedupe_source_roots(job_config.excluded_roots)
+        job_config.excluded_roots = excluded_roots
 
         run_id = new_run_id()
         created_at = isoformat_utc(utc_now()) or ""
@@ -71,6 +73,15 @@ class RunOrchestrator:
                 "ignored_source_roots",
                 "Ignored overlapping or redundant source roots.",
                 {"ignored_roots": ignored_roots},
+            )
+        if ignored_excluded_roots:
+            repository.record_event(
+                run_id,
+                "validation",
+                "INFO",
+                "ignored_excluded_roots",
+                "Ignored overlapping or redundant excluded folders.",
+                {"ignored_roots": ignored_excluded_roots},
             )
 
         report_writer.write_config_snapshot(
@@ -118,6 +129,7 @@ class RunOrchestrator:
         config_payload = json.loads(run_row["config_json"])
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
+            excluded_roots=config_payload.get("excluded_roots", []),
             cutoff_date=config_payload["cutoff_date"],
             date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
@@ -170,6 +182,7 @@ class RunOrchestrator:
         config_payload = json.loads(run_row["config_json"])
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
+            excluded_roots=config_payload.get("excluded_roots", []),
             cutoff_date=config_payload["cutoff_date"],
             date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
@@ -228,7 +241,12 @@ class RunOrchestrator:
     ) -> RunResult:
         verification_summary: dict = {}
         adapter = self._adapter_factory(auth_config, logger)
-        planner = ArchivePlanner(job_config.archive_root, job_config.exclude_archive_destination, auth_config.account_mode)
+        planner = ArchivePlanner(
+            job_config.archive_root,
+            job_config.exclude_archive_destination,
+            auth_config.account_mode,
+            job_config.excluded_roots,
+        )
         traversal_roots = None
         try:
             if emit is not None:

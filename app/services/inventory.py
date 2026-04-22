@@ -11,7 +11,7 @@ from app.models.records import InventoryRecord, RemoteEntry, TraversalRoot
 from app.persistence.repository import RunStateRepository
 from app.services.planner import ArchivePlanner
 from app.services.runtime import CancellationToken, ProgressEmitter
-from app.utils.paths import normalize_dropbox_path, parent_path
+from app.utils.paths import join_dropbox_path, normalize_dropbox_path, parent_path
 from app.utils.retry import retry_call
 from app.utils.time import isoformat_utc, utc_now
 
@@ -44,9 +44,9 @@ class DropboxInventoryService:
         ]
         for root in targets:
             cancellation_token.check()
-            if root.account_mode == "personal" and planner.is_excluded_from_sources(root.root_path):
+            if self._is_root_excluded(root, planner):
                 self._logger.info(
-                    "Skipped source root %s because it is the archive destination or inside it.",
+                    "Skipped source root %s because it is excluded from this run.",
                     root.root_path,
                     extra={"phase": "inventory"},
                 )
@@ -55,7 +55,7 @@ class DropboxInventoryService:
                     "inventory",
                     "INFO",
                     "source_root_excluded",
-                    f"Skipped source root {root.root_path} because it is inside the archive destination.",
+                    f"Skipped source root {root.root_path} because it is excluded from this run.",
                     {"root_path": root.root_path},
                 )
                 self._repository.save_inventory_checkpoint(
@@ -200,9 +200,9 @@ class DropboxInventoryService:
     ) -> Iterable[InventoryRecord]:
         for entry in entries:
             enriched = self._merge_entry_with_root(entry, root)
-            if root.account_mode == "personal" and planner.is_excluded_from_sources(enriched.full_path):
+            if self._is_entry_excluded(enriched, root, planner):
                 self._logger.info(
-                    "Excluded %s from inventory because it is inside the archive destination.",
+                    "Excluded %s from inventory because it matches an excluded folder.",
                     enriched.full_path,
                     extra={"phase": "inventory"},
                 )
@@ -258,3 +258,26 @@ class DropboxInventoryService:
             canonical_parent_path=entry.canonical_parent_path,
             archive_bucket=root.archive_bucket,
         )
+
+    def _is_root_excluded(self, root: TraversalRoot, planner: ArchivePlanner) -> bool:
+        if planner.is_excluded_from_sources(root.root_path):
+            return True
+        display_root = self._team_display_path(root, "/")
+        return bool(display_root and planner.is_user_excluded(display_root))
+
+    def _is_entry_excluded(self, entry: RemoteEntry, root: TraversalRoot, planner: ArchivePlanner) -> bool:
+        if planner.is_excluded_from_sources(entry.full_path):
+            return True
+        display_path = self._team_display_path(root, entry.full_path)
+        return bool(display_path and planner.is_user_excluded(display_path))
+
+    def _team_display_path(self, root: TraversalRoot, path: str) -> str | None:
+        if root.account_mode != "team_admin" or not root.namespace_id:
+            return None
+        if root.archive_bucket == "member_homes":
+            return None
+        if root.namespace_type == "team_space" and root.include_mounted_folders is False:
+            return normalize_dropbox_path(path)
+        if not root.namespace_name:
+            return None
+        return join_dropbox_path("/", root.namespace_name, path)

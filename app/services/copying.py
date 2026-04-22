@@ -18,6 +18,7 @@ from app.persistence.repository import RunStateRepository
 from app.services.planner import ArchivePlanner
 from app.services.runtime import CancellationToken, ProgressEmitter
 from app.utils.paths import (
+    join_dropbox_path,
     namespace_relative_parent,
     namespace_relative_path,
     normalize_dropbox_path,
@@ -139,6 +140,18 @@ class ArchiveCopyService:
         original_path = job["original_path"]
         source_path = job["canonical_source_path"]
         archive_display_path = job["archive_path"]
+        if self._job_is_user_excluded(job, planner):
+            self._repository.update_copy_job_status(
+                run_id,
+                source_path,
+                status="excluded",
+                status_detail="Skipped because the source path matches an excluded folder for this run.",
+                attempt_count=job["attempt_count"],
+                first_attempt_at=job["first_attempt_at"],
+                last_attempt_at=job["last_attempt_at"],
+                archive_canonical_path=job.get("archive_canonical_path"),
+            )
+            return
         planned_canonical_path = planner.build_archive_canonical_path(
             archive_display_path,
             archive_bucket=job.get("archive_bucket") or "personal",
@@ -343,3 +356,18 @@ class ArchiveCopyService:
         if existing_size is not None and job_size is not None and existing_size == job_size:
             return existing.server_modified == job["server_modified"]
         return False
+
+    def _job_is_user_excluded(self, job: dict, planner: ArchivePlanner) -> bool:
+        original_path = job["original_path"]
+        if planner.is_user_excluded(original_path):
+            return True
+        if planner.account_mode != "team_admin" or job.get("archive_bucket") == "member_homes":
+            return False
+        namespace_id = job.get("namespace_id")
+        root_namespace_id = planner.team_discovery.root_namespace_id if planner.team_discovery else None
+        if namespace_id and root_namespace_id and namespace_id == root_namespace_id:
+            return False
+        namespace_name = job.get("namespace_name")
+        if not namespace_name:
+            return False
+        return planner.is_user_excluded(join_dropbox_path("/", namespace_name, original_path))

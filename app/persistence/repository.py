@@ -178,6 +178,7 @@ class RunStateRepository:
     def create_run(self, run_context: RunContext, job_config: JobConfig, auth_config: AuthConfig) -> None:
         payload = {
             "source_roots": job_config.source_roots,
+            "excluded_roots": job_config.excluded_roots,
             "cutoff_date": job_config.cutoff_date,
             "date_filter_field": job_config.date_filter_field,
             "archive_root": job_config.archive_root,
@@ -696,7 +697,7 @@ class RunStateRepository:
             count = int(row["count"])
             if status == "copied":
                 counters["files_copied"] += count
-            elif status.startswith("skipped"):
+            elif status.startswith("skipped") or status == "excluded":
                 counters["files_skipped"] += count
             elif status in ("failed", "blocked_precondition"):
                 counters["files_failed"] += count
@@ -713,7 +714,7 @@ class RunStateRepository:
                     COUNT(*) AS matched_count,
                     SUM(CASE WHEN status = 'copied' THEN 1 ELSE 0 END) AS copied_count,
                     SUM(CASE WHEN status IN ('failed', 'blocked_precondition') THEN 1 ELSE 0 END) AS failed_count,
-                    SUM(CASE WHEN status LIKE 'skipped%' THEN 1 ELSE 0 END) AS skipped_count
+                    SUM(CASE WHEN status LIKE 'skipped%' OR status = 'excluded' THEN 1 ELSE 0 END) AS skipped_count
                 FROM copy_jobs
                 WHERE run_id = ?
                 GROUP BY canonical_parent_path

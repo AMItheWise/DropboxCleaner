@@ -256,6 +256,7 @@ class ReportWriter:
             "mode": run_context.mode,
             "job": {
                 "source_roots": job_config.source_roots,
+                "excluded_roots": job_config.excluded_roots,
                 "cutoff_date": job_config.cutoff_date,
                 "date_filter_field": job_config.date_filter_field,
                 "archive_root": job_config.archive_root,

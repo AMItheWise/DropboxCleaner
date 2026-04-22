@@ -87,11 +87,12 @@ class DropboxFolderPickerDialog(QDialog):
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
 
-        help_text = (
-            "Pick a folder for archive copies. The Dropbox root cannot be used as the archive destination."
-            if purpose == "archive"
-            else "Pick a Dropbox folder to scan. You can add more folders after choosing this one."
-        )
+        if purpose == "archive":
+            help_text = "Pick a folder for archive copies. The Dropbox root cannot be used as the archive destination."
+        elif purpose == "exclude":
+            help_text = "Pick a folder to skip. Files inside it will not be inventoried or copied."
+        else:
+            help_text = "Pick a Dropbox folder to scan. You can add more folders after choosing this one."
         body = QLabel(help_text)
         body.setObjectName("body")
         body.setWordWrap(True)
@@ -220,6 +221,13 @@ class DropboxFolderPickerDialog(QDialog):
                 self,
                 "Choose a folder inside Dropbox",
                 "The Dropbox root cannot be used as the archive folder. Choose or create a dedicated folder instead.",
+            )
+            return
+        if self._purpose == "exclude" and selected == "/":
+            QMessageBox.information(
+                self,
+                "Choose a folder inside Dropbox",
+                "The Dropbox root cannot be skipped because that would exclude the whole run.",
             )
             return
         self.selected_path = selected

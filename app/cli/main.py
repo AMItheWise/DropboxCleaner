@@ -78,6 +78,12 @@ def add_auth_args(parser: argparse.ArgumentParser) -> None:
 
 def add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-root", action="append", dest="source_roots", help="Dropbox root path to include in personal mode.")
+    parser.add_argument(
+        "--exclude-root",
+        action="append",
+        dest="excluded_roots",
+        help="Dropbox folder path to exclude from inventory and copy planning. Can be supplied more than once.",
+    )
     parser.add_argument("--cutoff-date", default="2020-05-01", help="Cutoff date in YYYY-MM-DD format.")
     parser.add_argument(
         "--date-filter-field",
@@ -223,6 +229,7 @@ def resolve_auth_config(args: argparse.Namespace, config_data: dict[str, Any]) -
 def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mode: str) -> JobConfig:
     job_section = config_data.get("job", {})
     source_roots = args.source_roots or job_section.get("source_roots") or ["/"]
+    excluded_roots = args.excluded_roots or job_section.get("excluded_roots") or []
     retry = RetrySettings(
         max_retries=args.retry_count if hasattr(args, "retry_count") else job_section.get("retry_count", 5),
         initial_backoff_seconds=args.initial_backoff if hasattr(args, "initial_backoff") else job_section.get("initial_backoff", 1.0),
@@ -231,6 +238,7 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
     )
     return JobConfig(
         source_roots=list(source_roots),
+        excluded_roots=list(excluded_roots),
         cutoff_date=getattr(args, "cutoff_date", None) or job_section.get("cutoff_date", "2020-05-01"),
         date_filter_field=getattr(args, "date_filter_field", None) or job_section.get("date_filter_field", "server_modified"),
         archive_root=getattr(args, "archive_root", None) or job_section.get("archive_root", "/Archive_PreMay2020"),

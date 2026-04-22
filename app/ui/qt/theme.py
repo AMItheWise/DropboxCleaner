@@ -43,6 +43,12 @@ def app_stylesheet() -> str:
         border-radius: 18px;
     }}
 
+    QFrame#successCard, QWidget#successCard {{
+        background: #E9F6F1;
+        border: 1px solid #BFDCD0;
+        border-radius: 18px;
+    }}
+
     QLabel#eyebrow {{
         color: {MUTED};
         font-size: 13px;
@@ -72,6 +78,20 @@ def app_stylesheet() -> str:
     QLabel#safe {{
         color: {SUCCESS};
         font-size: 14px;
+        font-weight: 700;
+    }}
+
+    QLabel#statusLabel {{
+        color: {MUTED};
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }}
+
+    QLabel#statusValue {{
+        color: {INK};
+        font-size: 15px;
         font-weight: 700;
     }}
 

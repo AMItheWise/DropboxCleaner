@@ -56,6 +56,7 @@ class AuthConfig:
 @dataclass(slots=True)
 class JobConfig:
     source_roots: list[str]
+    excluded_roots: list[str] = field(default_factory=list)
     cutoff_date: str = "2020-05-01"
     date_filter_field: DateFilterField = "server_modified"
     archive_root: str = "/Archive_PreMay2020"

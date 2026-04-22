@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.models.config import AccountMode
 from app.models.records import TeamDiscoveryResult
@@ -18,10 +18,12 @@ class ArchivePlanner:
     archive_root: str
     exclude_archive_destination: bool = True
     account_mode: AccountMode = "personal"
+    excluded_roots: list[str] = field(default_factory=list)
     team_discovery: TeamDiscoveryResult | None = None
 
     def __post_init__(self) -> None:
         self.archive_root = normalize_dropbox_path(self.archive_root)
+        self.excluded_roots = [normalize_dropbox_path(path) for path in self.excluded_roots if path and path.strip()]
 
     def with_team_discovery(self, team_discovery: TeamDiscoveryResult) -> "ArchivePlanner":
         self.team_discovery = team_discovery
@@ -29,6 +31,8 @@ class ArchivePlanner:
         return self
 
     def is_excluded_from_sources(self, path: str) -> bool:
+        if self.is_user_excluded(path):
+            return True
         if not self.exclude_archive_destination:
             return False
         if self.account_mode == "team_admin":
@@ -36,6 +40,11 @@ class ArchivePlanner:
             # by not traversing the dedicated archive namespace root as a source namespace.
             return False
         return is_same_or_descendant(path, self.archive_root)
+
+    def is_user_excluded(self, path: str) -> bool:
+        if not self.excluded_roots:
+            return False
+        return any(is_same_or_descendant(path, excluded_root) for excluded_root in self.excluded_roots)
 
     def map_to_archive_path(
         self,

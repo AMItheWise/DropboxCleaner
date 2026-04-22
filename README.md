@@ -17,6 +17,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 - Full metadata traversal with pagination
 - Namespace-aware team inventory and resumable copy state
 - Cutoff filtering based on `server_modified`, `client_modified`, or the oldest of both
+- Optional excluded folders that are skipped during inventory and copy planning
 - Dry-run mode with planned manifests
 - Safe copy-first archive staging inside Dropbox
 - SQLite-backed resumability, logs, verification, and summaries
@@ -184,6 +185,20 @@ py -3.11 -m app.cli.main copy ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
+```
+
+### Exclude Folders From A Run
+
+Use excluded folders for content that should not be inventoried or copied. The GUI has a `Folders to skip` section; the CLI supports repeated `--exclude-root` flags.
+
+```powershell
+py -3.11 -m app.cli.main dry-run ^
+  --account-mode personal ^
+  --use-saved-auth ^
+  --source-root / ^
+  --exclude-root /Screenshots ^
+  --exclude-root /Personal/DoNotArchive ^
+  --archive-root /Archive_PreMay2020
 ```
 
 ### Cutoff Date Field
