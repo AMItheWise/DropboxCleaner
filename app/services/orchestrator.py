@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from queue import Queue
 
-from app.dropbox_client.adapter import DropboxAdapter
+from app.dropbox_client.adapter import DropboxAdapter, filter_team_discovery_for_job
 from app.dropbox_client.errors import ConflictPolicyAbortError
 from app.models.config import AuthConfig, JobConfig, OutputPaths, RunContext
 from app.models.events import ProgressSnapshot
@@ -257,9 +257,10 @@ class RunOrchestrator:
             if auth_config.account_mode == "team_admin":
                 if emit is not None:
                     emit(ProgressSnapshot(phase="team_discovery", message="Discovering team members and namespaces"))
-                team_discovery = adapter.get_team_discovery(job_config)
+                team_discovery = filter_team_discovery_for_job(adapter.get_team_discovery(job_config), job_config)
                 create_archive = run_context.mode == "copy_run"
                 team_discovery = adapter.prepare_archive_destination(team_discovery, job_config.archive_root, create=create_archive)
+                team_discovery = filter_team_discovery_for_job(team_discovery, job_config)
                 planner.with_team_discovery(team_discovery)
                 traversal_roots = team_discovery.traversal_roots
                 repository.record_event(
@@ -272,7 +273,7 @@ class RunOrchestrator:
                         "team_name": account.team_name,
                         "team_model": team_discovery.team_model,
                         "active_member_count": account.active_member_count,
-                        "namespace_count": account.namespace_count,
+                        "namespace_count": team_discovery.account_info.namespace_count,
                         "archive_status_detail": team_discovery.archive_status_detail,
                     },
                 )

@@ -312,8 +312,9 @@ class ReportWriter:
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for folder in report.folder_breakdown:
+            folder_label = folder.display_folder_path or folder.folder_path
             lines.append(
-                f"| `{folder.folder_path}` | {folder.file_count} | {folder.total_size} | "
+                f"| `{folder_label}` | {folder.file_count} | {folder.total_size} | "
                 f"{folder.matched_count} | {folder.copied_count} | {folder.failed_count} | {folder.skipped_count} |"
             )
 

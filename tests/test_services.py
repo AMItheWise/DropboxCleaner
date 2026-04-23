@@ -8,11 +8,11 @@ import pytest
 from dropbox import files
 from dropbox import exceptions as dbx_exceptions
 
-from app.dropbox_client.adapter import DropboxAdapter, path_root_for_namespace
+from app.dropbox_client.adapter import DropboxAdapter, filter_team_discovery_for_job, path_root_for_namespace
 from app.dropbox_client.auth import AuthManager
 from app.dropbox_client.errors import BlockedPreconditionError, ConflictPolicyAbortError, TemporaryDropboxError
 from app.models.config import AuthConfig, JobConfig, OutputPaths, RetrySettings, RunContext
-from app.models.records import AccountInfo, InventoryRecord, TeamDiscoveryResult, TraversalRoot
+from app.models.records import AccountInfo, InventoryRecord, MatchedFileRecord, TeamDiscoveryResult, TraversalRoot
 from app.persistence.repository import RunStateRepository
 from app.reports.writers import ReportWriter
 from app.services.copying import ArchiveCopyService
@@ -78,6 +78,74 @@ def seed_inventory(repository: RunStateRepository, run_context: RunContext, rows
             for row in rows
         ]
     )
+
+
+def test_folder_summary_uses_readable_team_folder_labels(tmp_path: Path) -> None:
+    run_context, repository = make_run_context(tmp_path, "copy_run", "team_admin")
+    records = [
+        MatchedFileRecord(
+            original_path="/Screenshot.png",
+            path_lower="/screenshot.png",
+            filename="Screenshot.png",
+            dropbox_id="id:screenshot",
+            size=100,
+            server_modified="2019-01-01T00:00:00Z",
+            client_modified="2019-01-01T00:00:00Z",
+            content_hash="hash-screenshot",
+            planned_archive_path="/Archive/Screenshots/Screenshot.png",
+            archive_canonical_path="ns:archive/Screenshots/Screenshot.png",
+            match_reason="client_modified before cutoff",
+            filter_run_id=run_context.run_id,
+            filter_timestamp=run_context.created_at,
+            parent_path="/",
+            account_mode="team_admin",
+            namespace_id="14146115283",
+            namespace_type="team_folder",
+            namespace_name="Screenshots",
+            canonical_source_path="ns:14146115283/Screenshot.png",
+            canonical_parent_path="ns:14146115283",
+            archive_bucket="team_space",
+        ),
+        MatchedFileRecord(
+            original_path="/5.docx",
+            path_lower="/5.docx",
+            filename="5.docx",
+            dropbox_id="id:5",
+            size=50,
+            server_modified="2019-01-01T00:00:00Z",
+            client_modified="2019-01-01T00:00:00Z",
+            content_hash="hash-5",
+            planned_archive_path="/Archive/5.docx",
+            archive_canonical_path="ns:archive/5.docx",
+            match_reason="client_modified before cutoff",
+            filter_run_id=run_context.run_id,
+            filter_timestamp=run_context.created_at,
+            parent_path="/",
+            account_mode="team_admin",
+            namespace_id="767910133",
+            namespace_type="team_member_folder",
+            namespace_name="Root",
+            member_id="dbmid:alice",
+            member_email="alice@example.com",
+            member_display_name="Alice Example",
+            canonical_source_path="ns:767910133/5.docx",
+            canonical_parent_path="ns:767910133",
+            archive_bucket="member_homes",
+        ),
+    ]
+    repository.upsert_matched_records(records, "copy_run")
+    for record in records:
+        repository.update_copy_job_status(
+            run_context.run_id,
+            record.canonical_source_path,
+            status="copied",
+            status_detail="Copied.",
+        )
+
+    summary = repository.build_folder_summary(run_context.run_id)
+
+    assert {row.folder_path for row in summary} == {"ns:14146115283", "ns:767910133"}
+    assert {row.display_folder_path for row in summary} == {"/Screenshots", "Member home: Alice Example"}
 
 
 def make_team_discovery() -> TeamDiscoveryResult:
@@ -667,6 +735,23 @@ def test_team_inventory_uses_namespace_context(tmp_path: Path) -> None:
     rows = list(repository.iter_inventory_records(run_context.run_id))
     assert {row["canonical_source_path"] for row in rows} == {"ns:ns-root/root-plan.docx", "ns:ns-home-alice/Projects/old.psd"}
     assert {row["archive_bucket"] for row in rows} == {"team_space", "member_homes"}
+
+
+def test_team_owned_discovery_filter_removes_member_homes() -> None:
+    raw_discovery = make_team_discovery()
+    job_config = JobConfig(
+        source_roots=["/"],
+        output_dir=Path("outputs"),
+        mode="dry_run",
+        team_coverage_preset="team_owned_only",
+    )
+
+    filtered = filter_team_discovery_for_job(raw_discovery, job_config)
+
+    assert any(root.archive_bucket == "member_homes" for root in raw_discovery.traversal_roots)
+    assert all(root.archive_bucket != "member_homes" for root in filtered.traversal_roots)
+    assert all(root.namespace_type != "team_member_folder" for root in filtered.traversal_roots)
+    assert filtered.account_info.namespace_count == len(filtered.traversal_roots)
 
 
 def test_team_namespace_display_folder_can_be_excluded(tmp_path: Path) -> None:

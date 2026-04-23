@@ -39,6 +39,21 @@ def path_root_for_namespace(namespace_id: str, root_namespace_id: str | None) ->
     return common.PathRoot.namespace_id(namespace_id)
 
 
+def filter_team_discovery_for_job(discovery: TeamDiscoveryResult, job_config: JobConfig | None) -> TeamDiscoveryResult:
+    if job_config is None or job_config.team_coverage_preset != "team_owned_only":
+        return discovery
+    traversal_roots = [
+        root
+        for root in discovery.traversal_roots
+        if root.archive_bucket != "member_homes" and root.namespace_type != "team_member_folder"
+    ]
+    return replace(
+        discovery,
+        traversal_roots=traversal_roots,
+        account_info=replace(discovery.account_info, namespace_count=len(traversal_roots)),
+    )
+
+
 class DropboxAdapter:
     def __init__(self, auth_config: AuthConfig, logger: logging.Logger, timeout: int = 100) -> None:
         self._auth_config = auth_config
@@ -130,7 +145,7 @@ class DropboxAdapter:
         if self._auth_config.account_mode != "team_admin":
             raise AuthenticationFailureError("Team discovery is only available in team-admin mode.")
         if self._team_discovery_cache is not None:
-            return self._team_discovery_cache
+            return filter_team_discovery_for_job(self._team_discovery_cache, job_config)
         try:
             assert self._team_client is not None
             admin_result = self._team_client.team_token_get_authenticated_admin()
@@ -188,9 +203,6 @@ class DropboxAdapter:
                 else:
                     archive_bucket = "shared_namespaces"
                     include_mounted = True
-                if job_config is not None and job_config.team_coverage_preset == "team_owned_only":
-                    if archive_bucket == "member_homes":
-                        continue
                 traversal_roots.append(
                     TraversalRoot(
                         root_key=f"namespace::{namespace_id}",
@@ -227,7 +239,7 @@ class DropboxAdapter:
                 team_model=team_model,
                 root_namespace_id=root_namespace_id,
             )
-            return self._team_discovery_cache
+            return filter_team_discovery_for_job(self._team_discovery_cache, job_config)
         except Exception as exc:  # noqa: BLE001
             self._raise_mapped(exc)
 

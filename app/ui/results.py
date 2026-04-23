@@ -91,7 +91,7 @@ def load_results_view_model(run_dir: Path) -> ResultsViewModel:
 
     top_folders = [
         FolderResult(
-            folder=str(row.get("folder_path") or "Dropbox"),
+            folder=str(row.get("display_folder_path") or row.get("folder_path") or "Dropbox"),
             matched=int(row.get("matched_count", 0) or 0),
             copied=int(row.get("copied_count", 0) or 0),
             failed=int(row.get("failed_count", 0) or 0),

@@ -228,6 +228,7 @@ class VerificationRecord:
 @dataclass(slots=True)
 class FolderSummary:
     folder_path: str
+    display_folder_path: str | None = None
     file_count: int = 0
     total_size: int = 0
     matched_count: int = 0
