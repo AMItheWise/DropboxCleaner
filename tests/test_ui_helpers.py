@@ -197,6 +197,60 @@ def test_results_view_model_falls_back_to_manifest_previews(tmp_path: Path) -> N
     assert result.conflicts == ["/conflict.txt -> /Archive/conflict.txt: Conflict detected"]
 
 
+def test_results_view_model_merges_duplicate_visible_folder_rows(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-merged-folders",
+                "mode": "copy_run",
+                "created_at": "2026-04-23T00:00:00Z",
+                "totals": {
+                    "items_scanned": 45,
+                    "files_matched": 36,
+                    "files_copied": 36,
+                    "files_skipped": 0,
+                    "files_failed": 0,
+                },
+                "folder_breakdown": [
+                    {
+                        "folder_path": "ns:14133562707/test/team_space",
+                        "display_folder_path": "/Amithewise Team Folder/test/team_space",
+                        "matched_count": 12,
+                        "copied_count": 12,
+                        "failed_count": 0,
+                        "skipped_count": 0,
+                        "total_size": 100,
+                    },
+                    {
+                        "folder_path": "ns:14135428819/Amithewise Team Folder/test/team_space",
+                        "display_folder_path": "/Amithewise Team Folder/test/team_space",
+                        "matched_count": 12,
+                        "copied_count": 12,
+                        "failed_count": 0,
+                        "skipped_count": 0,
+                        "total_size": 100,
+                    },
+                ],
+                "already_archived_preview": [],
+                "conflicts_preview": [],
+                "failures_preview": [],
+                "blocked_preview": [],
+                "verification": {"source_matched_file_count": 24, "archive_staged_file_count": 24},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_results_view_model(run_dir)
+
+    assert len(result.top_folders) == 1
+    assert result.top_folders[0].folder == "/Amithewise Team Folder/test/team_space"
+    assert result.top_folders[0].matched == 24
+    assert result.top_folders[0].copied == 24
+
+
 def test_results_view_model_parses_issues_and_empty_run(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -329,6 +383,53 @@ def test_team_folder_browser_defaults_to_web_like_team_root() -> None:
     assert [folder.display_path for folder in roots] == ["/AMI Bad", "/Team Folder"]
     assert [folder.display_path for folder in children] == ["/Team Folder/Archive"]
     assert [folder.display_path for folder in advanced_roots] == ["/", "/Team Folder"]
+
+
+def test_team_folder_browser_hides_secondary_team_space_namespace_labels() -> None:
+    discovery = TeamDiscoveryResult(
+        account_info=AccountInfo("dbid:admin", "Admin", account_mode="team_admin"),
+        traversal_roots=[
+            TraversalRoot(
+                root_key="namespace::ns-root",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+                namespace_name="Example Team",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-root",
+            ),
+            TraversalRoot(
+                root_key="namespace::ns-mounted",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-mounted",
+                namespace_type="team_space",
+                namespace_name="TMR",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-mounted",
+            ),
+            TraversalRoot(
+                root_key="namespace::ns-team-folder",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-team-folder",
+                namespace_type="team_folder",
+                namespace_name="Amithewise Team Folder",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-team-folder",
+            ),
+        ],
+        team_model="team_space",
+        root_namespace_id="ns-root",
+    )
+    backend = FakeDropboxBackend([], account=discovery.account_info, team_discovery=discovery)
+    adapter = FakeDropboxAdapter(AuthConfig(method="access_token", account_mode="team_admin", access_token="token"), make_logger(), backend)
+    service = DropboxFolderBrowserService(adapter, account_mode="team_admin", job_config=JobConfig(source_roots=["/"]))
+
+    advanced_roots = service.list_folders(service.advanced_team_root_location())
+
+    assert [folder.display_path for folder in advanced_roots] == ["/Amithewise Team Folder", "/"]
 
 
 def test_folder_browser_surfaces_api_failure() -> None:

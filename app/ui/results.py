@@ -109,17 +109,7 @@ def load_results_view_model(run_dir: Path) -> ResultsViewModel:
         StatusSlice("Failed", int(totals.get("files_failed", 0)), "#C84C4C"),
     ]
 
-    top_folders = [
-        FolderResult(
-            folder=str(row.get("display_folder_path") or row.get("folder_path") or "Dropbox"),
-            matched=int(row.get("matched_count", 0) or 0),
-            copied=int(row.get("copied_count", 0) or 0),
-            failed=int(row.get("failed_count", 0) or 0),
-            skipped=int(row.get("skipped_count", 0) or 0),
-            total_size=int(row.get("total_size", 0) or 0),
-        )
-        for row in summary.get("folder_breakdown", [])
-    ]
+    top_folders = _merge_folder_breakdown(summary.get("folder_breakdown", []))
     top_folders.sort(key=lambda row: (row.matched, row.copied, row.total_size), reverse=True)
 
     return ResultsViewModel(
@@ -171,6 +161,33 @@ def _read_manifest_previews(run_dir: Path, limit: int = 20) -> dict[str, list[st
                 f"{row.get('original_path', '')} -> {row.get('archive_path', '')}: {row.get('status_detail', '')}".strip()
             )
     return previews
+
+
+def _merge_folder_breakdown(rows: list[dict[str, Any]]) -> list[FolderResult]:
+    merged: dict[str, FolderResult] = {}
+    for row in rows:
+        folder = str(row.get("display_folder_path") or row.get("folder_path") or "Dropbox")
+        existing = merged.get(folder)
+        current = FolderResult(
+            folder=folder,
+            matched=int(row.get("matched_count", 0) or 0),
+            copied=int(row.get("copied_count", 0) or 0),
+            failed=int(row.get("failed_count", 0) or 0),
+            skipped=int(row.get("skipped_count", 0) or 0),
+            total_size=int(row.get("total_size", 0) or 0),
+        )
+        if existing is None:
+            merged[folder] = current
+            continue
+        merged[folder] = FolderResult(
+            folder=folder,
+            matched=existing.matched + current.matched,
+            copied=existing.copied + current.copied,
+            failed=existing.failed + current.failed,
+            skipped=existing.skipped + current.skipped,
+            total_size=existing.total_size + current.total_size,
+        )
+    return list(merged.values())
 
 
 def _metric_value(metrics: list[MetricTile], label: str) -> int:

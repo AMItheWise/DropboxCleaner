@@ -270,13 +270,13 @@ class DropboxInventoryService:
         if planner.is_excluded_from_sources(root.root_path):
             return True
         display_root = self._team_display_path(root, "/")
-        return bool(display_root and planner.is_user_excluded(display_root))
+        return bool(display_root and (planner.is_user_excluded(display_root) or planner.is_archive_destination_path(display_root)))
 
     def _is_entry_excluded(self, entry: RemoteEntry, root: TraversalRoot, planner: ArchivePlanner) -> bool:
         if planner.is_excluded_from_sources(entry.full_path):
             return True
         display_path = self._team_display_path(root, entry.full_path)
-        return bool(display_path and planner.is_user_excluded(display_path))
+        return bool(display_path and (planner.is_user_excluded(display_path) or planner.is_archive_destination_path(display_path)))
 
     def _is_entry_included(self, entry: RemoteEntry, root: TraversalRoot, include_roots: list[str]) -> bool:
         if not include_roots:
@@ -296,7 +296,7 @@ class DropboxInventoryService:
             return None
         if root.archive_bucket == "member_homes":
             return None
-        if root.namespace_type == "team_space" and root.include_mounted_folders is False:
+        if root.namespace_type == "team_space":
             return normalize_dropbox_path(path)
         if not root.namespace_name:
             return None

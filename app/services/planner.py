@@ -42,6 +42,11 @@ class ArchivePlanner:
             return False
         return is_same_or_descendant(path, self.archive_root)
 
+    def is_archive_destination_path(self, path: str) -> bool:
+        if not self.exclude_archive_destination:
+            return False
+        return is_same_or_descendant(path, self.archive_root)
+
     def is_user_excluded(self, path: str) -> bool:
         if not self.excluded_roots:
             return False

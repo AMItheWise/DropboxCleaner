@@ -123,6 +123,9 @@ class DropboxFolderBrowserService:
                 continue
             if not root.namespace_id:
                 continue
+            # Secondary team-space namespaces are alternate API views, not user-facing folders.
+            if root.namespace_type == "team_space" and root.namespace_id != discovery.root_namespace_id:
+                continue
             name = root.namespace_name or root.namespace_id
             display_path = "/" if root.namespace_id == discovery.root_namespace_id else join_dropbox_path("/", name)
             key = (root.namespace_id, display_path.casefold())

@@ -831,6 +831,114 @@ def test_team_namespace_display_folder_can_be_excluded(tmp_path: Path) -> None:
     assert {row["canonical_source_path"] for row in rows} == {"ns:ns-home-alice/Projects/old.psd"}
 
 
+def test_team_archive_destination_is_excluded_across_namespace_views(tmp_path: Path) -> None:
+    base_discovery = make_team_discovery()
+    team_discovery = replace(
+        base_discovery,
+        traversal_roots=[
+            *base_discovery.traversal_roots,
+            TraversalRoot(
+                root_key="namespace::ns-team-folder",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-team-folder",
+                namespace_type="team_folder",
+                namespace_name="Amithewise Team Folder",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-team-folder",
+                include_mounted_folders=True,
+            ),
+            TraversalRoot(
+                root_key="namespace::ns-mounted-team-space",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-mounted-team-space",
+                namespace_type="team_space",
+                namespace_name="TMR",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-mounted-team-space",
+                include_mounted_folders=True,
+            ),
+            TraversalRoot(
+                root_key="namespace::ns-screenshots",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="team_folder",
+                namespace_name="Screenshots",
+                archive_bucket="team_space",
+                canonical_root="ns:ns-screenshots",
+                include_mounted_folders=True,
+            ),
+        ],
+    )
+    backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/test/team_space/old.png",
+                dropbox_id="id:archive-copy",
+                account_mode="team_admin",
+                namespace_id="ns-team-folder",
+                namespace_type="team_folder",
+                namespace_name="Amithewise Team Folder",
+                archive_bucket="team_space",
+            ),
+            make_file(
+                "/Amithewise Team Folder/test/team_space/old.png",
+                dropbox_id="id:archive-copy-mounted",
+                account_mode="team_admin",
+                namespace_id="ns-mounted-team-space",
+                namespace_type="team_space",
+                namespace_name="TMR",
+                archive_bucket="team_space",
+            ),
+            make_file(
+                "/old.png",
+                dropbox_id="id:real-source",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="team_folder",
+                namespace_name="Screenshots",
+                archive_bucket="team_space",
+            ),
+        ],
+        page_size=10,
+        account=team_discovery.account_info,
+        team_discovery=team_discovery,
+    )
+    adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("team.inventory.archive_exclude"),
+        backend,
+    )
+    run_context, repository = make_run_context(tmp_path, "inventory_only", "team_admin")
+    job_config = JobConfig(
+        source_roots=["/"],
+        output_dir=tmp_path,
+        mode="inventory_only",
+        archive_root="/Amithewise Team Folder/test",
+        exclude_archive_destination=True,
+    )
+
+    DropboxInventoryService(repository, make_logger("team.inventory.archive_exclude")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=job_config,
+        source_roots=["/"],
+        planner=ArchivePlanner(
+            job_config.archive_root,
+            account_mode="team_admin",
+            exclude_archive_destination=True,
+        ).with_team_discovery(team_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        traversal_roots=team_discovery.traversal_roots,
+    )
+
+    rows = list(repository.iter_inventory_records(run_context.run_id))
+    assert {row["canonical_source_path"] for row in rows} == {"ns:ns-screenshots/old.png"}
+
+
 def test_team_include_folder_limits_namespace_inventory(tmp_path: Path) -> None:
     team_discovery = replace(
         make_team_discovery(),
