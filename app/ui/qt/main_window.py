@@ -17,7 +17,12 @@ from app.models.config import AuthConfig, JobConfig, RetrySettings
 from app.models.records import AccountInfo
 from app.services.orchestrator import RunOrchestrator
 from app.services.runtime import CancellationToken, RunResult
-from app.ui.options import date_filter_label_to_value, run_label_to_value, team_coverage_label_to_value
+from app.ui.options import (
+    date_filter_label_to_value,
+    run_label_to_value,
+    team_archive_layout_label_to_value,
+    team_coverage_label_to_value,
+)
 from app.ui.qt import theme
 from app.ui.qt.dialogs import DropboxFolderPickerDialog, ErrorDetailsDialog, choose_local_output_dir
 from app.ui.qt.screens import AccountScreen, ConnectionScreen, ResultsScreen, RunScreen, SettingsScreen
@@ -402,7 +407,7 @@ class DropboxCleanerMainWindow(QMainWindow):
 
     def _build_job_config(self, mode: str) -> JobConfig:
         return JobConfig(
-            source_roots=self.settings_screen.source_roots() or ["/"],
+            source_roots=self.settings_screen.source_roots(),
             excluded_roots=self.settings_screen.excluded_roots(),
             cutoff_date=self.settings_screen.cutoff_date,
             date_filter_field=date_filter_label_to_value(self.settings_screen.date_filter_label),
@@ -422,6 +427,7 @@ class DropboxCleanerMainWindow(QMainWindow):
             worker_count=int(self.settings_screen.worker_count.value()),
             verify_after_run=True,
             team_coverage_preset=team_coverage_label_to_value(self.settings_screen.team_coverage_label),
+            team_archive_layout=team_archive_layout_label_to_value(self.settings_screen.team_archive_layout_label),
         )
 
     def _resolve_latest_state_db(self) -> Path:

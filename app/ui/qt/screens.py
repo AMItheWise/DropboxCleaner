@@ -30,9 +30,10 @@ from app.ui.options import (
     ACCOUNT_CHOICES,
     DATE_FILTER_CHOICES,
     RUN_MODE_CHOICES,
+    TEAM_ARCHIVE_LAYOUT_CHOICES,
     TEAM_COVERAGE_CHOICES,
     date_filter_value_to_label,
-    run_value_to_label,
+    team_archive_layout_value_to_label,
     team_coverage_value_to_label,
 )
 from app.ui.results import ResultsViewModel
@@ -432,7 +433,7 @@ class SettingsScreen(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._account_mode = "personal"
-        self._source_roots = ["/"]
+        self._source_roots: list[str] = []
         self._excluded_roots: list[str] = []
         self._selected_run_mode = "dry_run"
 
@@ -542,7 +543,10 @@ class SettingsScreen(QWidget):
         self.content_layout.addWidget(card)
 
     def _build_source_card(self) -> None:
-        self.source_card = _settings_card("Source folders", "Choose all Dropbox folders to scan.")
+        self.source_card = _settings_card(
+            "Folders to include",
+            "Optional: add folders to limit the scan. Leave this list empty to scan the whole Dropbox.",
+        )
         layout = self.source_card.layout()
         self.team_card = _settings_card("Team coverage", "Team admin mode scans team content through a coverage preset.")
         team_layout = self.team_card.layout()
@@ -550,10 +554,27 @@ class SettingsScreen(QWidget):
         self.team_coverage_combo.addItems([choice.label for choice in TEAM_COVERAGE_CHOICES])
         self.team_coverage_combo.setCurrentText(team_coverage_value_to_label("all_team_content"))
         team_layout.addWidget(self.team_coverage_combo)
+        team_archive_layout_label = QLabel("Archive layout")
+        team_archive_layout_label.setObjectName("body")
+        self.team_archive_layout_combo = QComboBox()
+        self.team_archive_layout_combo.addItems([choice.label for choice in TEAM_ARCHIVE_LAYOUT_CHOICES])
+        self.team_archive_layout_combo.setCurrentText(team_archive_layout_value_to_label("segmented"))
+        team_layout.addWidget(team_archive_layout_label)
+        team_layout.addWidget(self.team_archive_layout_combo)
 
         self.source_list = QListWidget()
         self.source_list.setMinimumHeight(90)
         layout.addWidget(self.source_list)
+
+        typed_row = QHBoxLayout()
+        self.source_path_edit = QLineEdit()
+        self.source_path_edit.setPlaceholderText("Type a Dropbox path, for example /Screenshots")
+        typed_row.addWidget(self.source_path_edit, 1)
+        add_typed = QPushButton("Add typed path")
+        add_typed.clicked.connect(self._add_typed_source)
+        typed_row.addWidget(add_typed)
+        layout.addLayout(typed_row)
+
         button_row = QHBoxLayout()
         add = QPushButton("Add Dropbox folder")
         add.clicked.connect(self.browse_source_requested.emit)
@@ -657,7 +678,7 @@ class SettingsScreen(QWidget):
 
     def set_account_mode(self, value: str) -> None:
         self._account_mode = value
-        self.source_card.setVisible(value == "personal")
+        self.source_card.setVisible(True)
         self.team_card.setVisible(value == "team_admin")
 
     def set_resume_available(self, available: bool) -> None:
@@ -670,8 +691,11 @@ class SettingsScreen(QWidget):
         return list(self._excluded_roots)
 
     def add_source_root(self, root: str) -> None:
-        if root not in self._source_roots:
-            self._source_roots.append(root)
+        normalized = normalize_dropbox_path(root)
+        if normalized == "/":
+            self._source_roots.clear()
+        elif normalized not in self._source_roots:
+            self._source_roots.append(normalized)
         self._render_source_roots()
 
     def add_excluded_root(self, root: str) -> None:
@@ -682,10 +706,8 @@ class SettingsScreen(QWidget):
 
     def _remove_selected_source(self) -> None:
         row = self.source_list.currentRow()
-        if row >= 0:
+        if row >= 0 and self._source_roots:
             self._source_roots.pop(row)
-        if not self._source_roots:
-            self._source_roots = ["/"]
         self._render_source_roots()
 
     def _remove_selected_exclusion(self) -> None:
@@ -698,8 +720,17 @@ class SettingsScreen(QWidget):
         self.add_excluded_root(self.exclude_path_edit.text())
         self.exclude_path_edit.clear()
 
+    def _add_typed_source(self) -> None:
+        self.add_source_root(self.source_path_edit.text())
+        self.source_path_edit.clear()
+
     def _render_source_roots(self) -> None:
         self.source_list.clear()
+        if not self._source_roots:
+            item = QListWidgetItem("Whole Dropbox (no include folders selected)")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.source_list.addItem(item)
+            return
         for root in self._source_roots:
             self.source_list.addItem(QListWidgetItem(root))
 
@@ -739,6 +770,10 @@ class SettingsScreen(QWidget):
     @property
     def team_coverage_label(self) -> str:
         return self.team_coverage_combo.currentText()
+
+    @property
+    def team_archive_layout_label(self) -> str:
+        return self.team_archive_layout_combo.currentText()
 
 
 class RunScreen(QWidget):

@@ -119,6 +119,12 @@ def add_job_args(parser: argparse.ArgumentParser) -> None:
         default="all_team_content",
         help="Coverage preset for team-admin mode.",
     )
+    parser.add_argument(
+        "--team-archive-layout",
+        choices=("segmented", "merged"),
+        default=None,
+        help="Team archive folder layout. segmented keeps team/member buckets separate; merged uses one archive tree.",
+    )
 
 
 def handle_oauth_link(args: argparse.Namespace) -> int:
@@ -252,6 +258,7 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
         worker_count=getattr(args, "worker_count", None) or job_section.get("worker_count", 1),
         verify_after_run=not getattr(args, "skip_verify", False),
         team_coverage_preset=getattr(args, "team_coverage_preset", None) or job_section.get("team_coverage_preset", "all_team_content"),
+        team_archive_layout=getattr(args, "team_archive_layout", None) or job_section.get("team_archive_layout", "segmented"),
     )
 
 

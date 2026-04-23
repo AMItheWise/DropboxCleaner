@@ -189,6 +189,7 @@ class RunStateRepository:
             "worker_count": job_config.worker_count,
             "verify_after_run": job_config.verify_after_run,
             "team_coverage_preset": job_config.team_coverage_preset,
+            "team_archive_layout": job_config.team_archive_layout,
         }
         auth_payload = {
             "method": auth_config.method,

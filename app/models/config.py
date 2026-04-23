@@ -11,6 +11,7 @@ RunMode = Literal["inventory_only", "dry_run", "copy_run"]
 ConflictPolicy = Literal["safe_skip", "abort_run"]
 TeamCoveragePreset = Literal["all_team_content", "team_owned_only"]
 DateFilterField = Literal["server_modified", "client_modified", "oldest_modified"]
+TeamArchiveLayout = Literal["segmented", "merged"]
 
 DEFAULT_PERSONAL_SCOPES = (
     "account_info.read",
@@ -72,6 +73,7 @@ class JobConfig:
     verify_after_run: bool = True
     start_fresh: bool = False
     team_coverage_preset: TeamCoveragePreset = "all_team_content"
+    team_archive_layout: TeamArchiveLayout = "segmented"
 
 
 @dataclass(slots=True)

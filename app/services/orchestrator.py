@@ -38,9 +38,7 @@ class RunOrchestrator:
     ) -> RunResult:
         cancellation_token = cancellation_token or CancellationToken()
         if auth_config.account_mode == "personal":
-            source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots)
-            if not source_roots:
-                raise ValueError("At least one Dropbox source root is required.")
+            source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots or ["/"])
             job_config.source_roots = source_roots
         else:
             ignored_roots = []
@@ -143,6 +141,7 @@ class RunOrchestrator:
             worker_count=config_payload["worker_count"],
             verify_after_run=config_payload["verify_after_run"],
             team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         return self._execute_workflow(
             repository=repository,
@@ -196,6 +195,7 @@ class RunOrchestrator:
             worker_count=config_payload["worker_count"],
             verify_after_run=True,
             team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         adapter = self._adapter_factory(auth_config, logger)
         try:
@@ -246,6 +246,7 @@ class RunOrchestrator:
             job_config.exclude_archive_destination,
             auth_config.account_mode,
             job_config.excluded_roots,
+            job_config.team_archive_layout,
         )
         traversal_roots = None
         try:

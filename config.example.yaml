@@ -14,8 +14,8 @@ auth:
     - files.content.write
 
 job:
-  source_roots:
-    - /
+  # Leave empty to scan the whole Dropbox. Add paths to limit the scan.
+  source_roots: []
   excluded_roots: []
   # Add Dropbox folders to skip during inventory and copy planning, for example:
   # excluded_roots:
@@ -36,3 +36,6 @@ job:
   include_folders_in_inventory: true
   exclude_archive_destination: true
   team_coverage_preset: "all_team_content"
+  # segmented = team_space/member_homes/shared_namespaces buckets.
+  # merged = one archive tree using visible folder paths where possible.
+  team_archive_layout: "segmented"

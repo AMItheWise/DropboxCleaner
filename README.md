@@ -150,6 +150,8 @@ py -3.11 -m app.cli.main inventory ^
   --output-dir ./outputs
 ```
 
+In the GUI, the `Folders to include` list can be left empty. Empty means Dropbox Cleaner inventories the whole Dropbox account. Add one or more folders only when you want to limit the run.
+
 ### Personal Dry Run
 
 ```powershell
@@ -185,6 +187,17 @@ py -3.11 -m app.cli.main copy ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
+```
+
+Team-admin archive layout defaults to `segmented`, which creates clear buckets such as `team_space`, `member_homes`, and `shared_namespaces`. If you want one combined archive tree, use `--team-archive-layout merged`. Existing conflict handling still prevents silent overwrites when two files would land at the same archive path.
+
+```powershell
+py -3.11 -m app.cli.main copy ^
+  --account-mode team_admin ^
+  --use-saved-auth ^
+  --team-coverage-preset all_team_content ^
+  --team-archive-layout merged ^
+  --archive-root /Archive_PreMay2020
 ```
 
 ### Exclude Folders From A Run

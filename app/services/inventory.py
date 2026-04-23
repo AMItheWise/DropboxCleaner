@@ -11,7 +11,7 @@ from app.models.records import InventoryRecord, RemoteEntry, TraversalRoot
 from app.persistence.repository import RunStateRepository
 from app.services.planner import ArchivePlanner
 from app.services.runtime import CancellationToken, ProgressEmitter
-from app.utils.paths import join_dropbox_path, normalize_dropbox_path, parent_path
+from app.utils.paths import is_same_or_descendant, join_dropbox_path, normalize_dropbox_path, parent_path
 from app.utils.retry import retry_call
 from app.utils.time import isoformat_utc, utc_now
 
@@ -33,6 +33,7 @@ class DropboxInventoryService:
         cancellation_token: CancellationToken,
         traversal_roots: list[TraversalRoot] | None = None,
     ) -> None:
+        include_roots = self._normalized_include_roots(job_config.source_roots)
         targets = traversal_roots or [
             TraversalRoot(
                 root_key=normalize_dropbox_path(root_path),
@@ -77,6 +78,7 @@ class DropboxInventoryService:
                         job_config=job_config,
                         root=root,
                         planner=planner,
+                        include_roots=include_roots,
                         emit=emit,
                         cancellation_token=cancellation_token,
                     )
@@ -108,6 +110,7 @@ class DropboxInventoryService:
         job_config: JobConfig,
         root: TraversalRoot,
         planner: ArchivePlanner,
+        include_roots: list[str],
         emit: ProgressEmitter | None,
         cancellation_token: CancellationToken,
     ) -> None:
@@ -155,6 +158,7 @@ class DropboxInventoryService:
                     entries=page.entries,
                     include_folders=job_config.include_folders_in_inventory,
                     planner=planner,
+                    include_roots=include_roots,
                 )
             )
             item_count += self._repository.upsert_inventory_records(records)
@@ -197,6 +201,7 @@ class DropboxInventoryService:
         entries: Iterable[RemoteEntry],
         include_folders: bool,
         planner: ArchivePlanner,
+        include_roots: list[str],
     ) -> Iterable[InventoryRecord]:
         for entry in entries:
             enriched = self._merge_entry_with_root(entry, root)
@@ -206,6 +211,8 @@ class DropboxInventoryService:
                     enriched.full_path,
                     extra={"phase": "inventory"},
                 )
+                continue
+            if not self._is_entry_included(enriched, root, include_roots):
                 continue
             if enriched.item_type == "folder" and not include_folders:
                 continue
@@ -271,6 +278,19 @@ class DropboxInventoryService:
         display_path = self._team_display_path(root, entry.full_path)
         return bool(display_path and planner.is_user_excluded(display_path))
 
+    def _is_entry_included(self, entry: RemoteEntry, root: TraversalRoot, include_roots: list[str]) -> bool:
+        if not include_roots:
+            return True
+        candidate_paths = [entry.full_path]
+        display_path = self._team_display_path(root, entry.full_path)
+        if display_path:
+            candidate_paths.append(display_path)
+        return any(
+            is_same_or_descendant(candidate_path, include_root)
+            for candidate_path in candidate_paths
+            for include_root in include_roots
+        )
+
     def _team_display_path(self, root: TraversalRoot, path: str) -> str | None:
         if root.account_mode != "team_admin" or not root.namespace_id:
             return None
@@ -281,3 +301,15 @@ class DropboxInventoryService:
         if not root.namespace_name:
             return None
         return join_dropbox_path("/", root.namespace_name, path)
+
+    def _normalized_include_roots(self, source_roots: list[str]) -> list[str]:
+        include_roots: list[str] = []
+        for source_root in source_roots:
+            if not source_root or not source_root.strip():
+                continue
+            normalized = normalize_dropbox_path(source_root)
+            if normalized == "/":
+                return []
+            if normalized not in include_roots:
+                include_roots.append(normalized)
+        return include_roots

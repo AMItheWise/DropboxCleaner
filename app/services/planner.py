@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models.config import AccountMode
+from app.models.config import AccountMode, TeamArchiveLayout
 from app.models.records import TeamDiscoveryResult
 from app.utils.paths import (
     is_same_or_descendant,
@@ -19,6 +19,7 @@ class ArchivePlanner:
     exclude_archive_destination: bool = True
     account_mode: AccountMode = "personal"
     excluded_roots: list[str] = field(default_factory=list)
+    team_archive_layout: TeamArchiveLayout = "segmented"
     team_discovery: TeamDiscoveryResult | None = None
 
     def __post_init__(self) -> None:
@@ -62,6 +63,17 @@ class ArchivePlanner:
                 raise ValueError("Archive root cannot be /. Use a dedicated top-level folder.")
             return join_dropbox_path(self.archive_root, original_path)
 
+        if self.team_archive_layout == "merged":
+            return join_dropbox_path(
+                self.archive_root,
+                self._merged_team_source_path(
+                    original_path,
+                    archive_bucket=archive_bucket,
+                    namespace_name=namespace_name,
+                    namespace_id=namespace_id,
+                ),
+            )
+
         if archive_bucket == "team_space":
             return join_dropbox_path(self.archive_root, "team_space", original_path)
         if archive_bucket == "member_homes":
@@ -95,3 +107,20 @@ class ArchivePlanner:
         relative_inside_archive = display_archive_path.removeprefix(self.archive_root)
         relative_inside_archive = normalize_dropbox_path(relative_inside_archive or "/")
         return namespace_relative_path(self.team_discovery.archive_namespace_id, relative_inside_archive)
+
+    def _merged_team_source_path(
+        self,
+        original_path: str,
+        *,
+        archive_bucket: str,
+        namespace_name: str | None,
+        namespace_id: str | None,
+    ) -> str:
+        if archive_bucket == "member_homes":
+            return original_path
+        root_namespace_id = self.team_discovery.root_namespace_id if self.team_discovery else None
+        if namespace_id and root_namespace_id and namespace_id == root_namespace_id:
+            return original_path
+        if namespace_name:
+            return join_dropbox_path("/", namespace_name, original_path)
+        return original_path

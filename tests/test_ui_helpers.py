@@ -14,6 +14,7 @@ from app.ui.folder_browser import BrowserLocation, DropboxFolderBrowserService
 from app.ui.options import (
     date_filter_label_to_value,
     run_label_to_value,
+    team_archive_layout_label_to_value,
     team_coverage_label_to_value,
 )
 from app.ui.results import load_results_view_model
@@ -43,6 +44,8 @@ def test_qt_main_window_instantiates_with_guarded_continue() -> None:
 
     assert app is not None
     assert not window.connection_screen.continue_button.isEnabled()
+    window.settings_screen.set_account_mode("team_admin")
+    assert not window.settings_screen.source_card.isHidden()
 
     window.close()
 
@@ -54,6 +57,7 @@ def test_friendly_choice_mappings() -> None:
     assert date_filter_label_to_value("Original file date") == "client_modified"
     assert date_filter_label_to_value("Oldest available date") == "oldest_modified"
     assert team_coverage_label_to_value("Team-owned only") == "team_owned_only"
+    assert team_archive_layout_label_to_value("Merge into one archive folder") == "merged"
 
 
 def test_results_view_model_parses_success_summary(tmp_path: Path) -> None:

@@ -101,9 +101,15 @@ class DropboxFolderPickerDialog(QDialog):
         self.path_label = QLabel("Dropbox")
         self.path_label.setObjectName("safe")
         layout.addWidget(self.path_label)
+        self.loading_label = QLabel("Loading Dropbox folders...")
+        self.loading_label.setObjectName("body")
+        self.loading_label.setWordWrap(True)
+        self.loading_label.hide()
+        layout.addWidget(self.loading_label)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Folder", "Location"])
+        self.tree.setColumnWidth(0, 260)
         self.tree.itemExpanded.connect(self._on_item_expanded)
         self.tree.currentItemChanged.connect(lambda *_: self._refresh_selection_label())
         self.tree.itemDoubleClicked.connect(lambda item, _col: self.tree.expandItem(item))
@@ -140,11 +146,12 @@ class DropboxFolderPickerDialog(QDialog):
         super().accept()
 
     def _load_root(self) -> None:
+        self.loading_label.hide()
         self.tree.clear()
         root = QTreeWidgetItem(["Dropbox", "/"])
         root.setData(0, Qt.ItemDataRole.UserRole, self._service.root_location())
         root.setData(0, Qt.ItemDataRole.UserRole + 1, False)
-        root.addChild(QTreeWidgetItem(["Loading...", ""]))
+        root.addChild(_loading_item("Loading Dropbox folders..."))
         self.tree.addTopLevelItem(root)
         if self._service.has_advanced_team_locations():
             advanced = QTreeWidgetItem(["Advanced team locations", "Team namespaces"])
@@ -154,7 +161,7 @@ class DropboxFolderPickerDialog(QDialog):
             )
             advanced.setData(0, Qt.ItemDataRole.UserRole, self._service.advanced_team_root_location())
             advanced.setData(0, Qt.ItemDataRole.UserRole + 1, False)
-            advanced.addChild(QTreeWidgetItem(["Loading...", ""]))
+            advanced.addChild(_loading_item("Loading team locations..."))
             self.tree.addTopLevelItem(advanced)
         self.tree.setCurrentItem(root)
         self.tree.expandItem(root)
@@ -170,10 +177,12 @@ class DropboxFolderPickerDialog(QDialog):
             return
         item.setData(0, Qt.ItemDataRole.UserRole + 1, True)
         item.takeChildren()
-        item.addChild(QTreeWidgetItem(["Loading...", ""]))
+        item.addChild(_loading_item("Loading folders..."))
         self._load_children(item, location)
 
     def _load_children(self, item: QTreeWidgetItem, location: BrowserLocation) -> None:
+        self.loading_label.setText(f"Loading folders in {location.display_path}...")
+        self.loading_label.show()
         worker = FolderLoadWorker(service=self._service, location=location)
         thread = QThread(self)
         worker.moveToThread(thread)
@@ -190,16 +199,17 @@ class DropboxFolderPickerDialog(QDialog):
         thread.start()
 
     def _apply_children(self, item: QTreeWidgetItem, folders: list[BrowserFolder]) -> None:
+        self.loading_label.hide()
         item.takeChildren()
         if not folders:
-            item.addChild(QTreeWidgetItem(["No folders here", ""]))
+            item.addChild(_loading_item("No folders here"))
             return
         for folder in folders:
             child = QTreeWidgetItem([folder.name, folder.display_path])
             child.setToolTip(0, folder.subtitle)
             child.setData(0, Qt.ItemDataRole.UserRole, folder.location)
             child.setData(0, Qt.ItemDataRole.UserRole + 1, False)
-            child.addChild(QTreeWidgetItem(["Loading...", ""]))
+            child.addChild(_loading_item("Expand to load folders"))
             item.addChild(child)
         self.tree.resizeColumnToContents(0)
         self.tree.resizeColumnToContents(1)
@@ -234,6 +244,7 @@ class DropboxFolderPickerDialog(QDialog):
         self.accept()
 
     def _show_error(self, message: str, details: str) -> None:
+        self.loading_label.hide()
         ErrorDetailsDialog("Dropbox folder browser error", message, details, self).exec()
 
 
@@ -242,3 +253,11 @@ def choose_local_output_dir(parent: QWidget | None, current: str) -> str | None:
 
     selected = QFileDialog.getExistingDirectory(parent, "Choose output folder", str(Path(current).expanduser()))
     return selected or None
+
+
+def _loading_item(message: str) -> QTreeWidgetItem:
+    item = QTreeWidgetItem([f"  {message}", ""])
+    item.setFirstColumnSpanned(True)
+    item.setToolTip(0, message)
+    item.setFlags(Qt.ItemFlag.NoItemFlags)
+    return item

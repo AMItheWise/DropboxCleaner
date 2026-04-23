@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.config import AccountMode, DateFilterField, RunMode, TeamCoveragePreset
+from app.models.config import AccountMode, DateFilterField, RunMode, TeamArchiveLayout, TeamCoveragePreset
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +34,11 @@ TEAM_COVERAGE_CHOICES: tuple[Choice, ...] = (
     Choice("Team-owned only", "team_owned_only", "Only team-owned and shared team namespaces."),
 )
 
+TEAM_ARCHIVE_LAYOUT_CHOICES: tuple[Choice, ...] = (
+    Choice("Separate team/member folders", "segmented", "Safest default. Keeps team space, member homes, and shared namespaces separate."),
+    Choice("Merge into one archive folder", "merged", "Copies into one archive tree using visible folder paths where possible."),
+)
+
 
 def account_label_to_value(label: str) -> AccountMode:
     return _label_to_value(label, ACCOUNT_CHOICES, "personal")  # type: ignore[return-value]
@@ -61,6 +66,14 @@ def team_coverage_label_to_value(label: str) -> TeamCoveragePreset:
 
 def team_coverage_value_to_label(value: str) -> str:
     return _value_to_label(value, TEAM_COVERAGE_CHOICES, "All team content")
+
+
+def team_archive_layout_label_to_value(label: str) -> TeamArchiveLayout:
+    return _label_to_value(label, TEAM_ARCHIVE_LAYOUT_CHOICES, "segmented")  # type: ignore[return-value]
+
+
+def team_archive_layout_value_to_label(value: str) -> str:
+    return _value_to_label(value, TEAM_ARCHIVE_LAYOUT_CHOICES, "Separate team/member folders")
 
 
 def _label_to_value(label: str, choices: tuple[Choice, ...], default: str) -> str:

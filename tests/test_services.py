@@ -299,6 +299,33 @@ def test_team_archive_path_mapping() -> None:
     )
 
 
+def test_team_merged_archive_path_mapping() -> None:
+    planner = ArchivePlanner(
+        "/Archive_PreMay2020",
+        account_mode="team_admin",
+        team_archive_layout="merged",
+    ).with_team_discovery(make_team_discovery())
+
+    assert (
+        planner.map_to_archive_path(
+            "/Designs/file.pdf",
+            archive_bucket="member_homes",
+            member_email="alice@example.com",
+            member_id="dbmid:alice",
+        )
+        == "/Archive_PreMay2020/Designs/file.pdf"
+    )
+    assert (
+        planner.map_to_archive_path(
+            "/old.png",
+            archive_bucket="shared_namespaces",
+            namespace_name="Screenshots",
+            namespace_id="ns-screenshots",
+        )
+        == "/Archive_PreMay2020/Screenshots/old.png"
+    )
+
+
 def test_team_path_root_uses_arbitrary_namespace_for_non_root_namespaces() -> None:
     root_path_root = path_root_for_namespace("ns-root", "ns-root")
     child_path_root = path_root_for_namespace("ns-shared", "ns-root")
@@ -717,6 +744,134 @@ def test_team_namespace_display_folder_can_be_excluded(tmp_path: Path) -> None:
 
     rows = list(repository.iter_inventory_records(run_context.run_id))
     assert {row["canonical_source_path"] for row in rows} == {"ns:ns-home-alice/Projects/old.psd"}
+
+
+def test_team_include_folder_limits_namespace_inventory(tmp_path: Path) -> None:
+    team_discovery = replace(
+        make_team_discovery(),
+        traversal_roots=[
+            *make_team_discovery().traversal_roots,
+            TraversalRoot(
+                root_key="namespace::ns-screenshots",
+                root_path="/",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="shared_folder",
+                namespace_name="Screenshots",
+                archive_bucket="shared_namespaces",
+                canonical_root="ns:ns-screenshots",
+                include_mounted_folders=True,
+            ),
+        ],
+    )
+    backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/old.png",
+                dropbox_id="id:old-screenshot",
+                account_mode="team_admin",
+                namespace_id="ns-screenshots",
+                namespace_type="shared_folder",
+                namespace_name="Screenshots",
+                archive_bucket="shared_namespaces",
+            ),
+            make_file(
+                "/Projects/old.psd",
+                dropbox_id="id:alice-old",
+                account_mode="team_admin",
+                namespace_id="ns-home-alice",
+                namespace_type="team_member_folder",
+                namespace_name="Alice Home",
+                member_id="dbmid:alice",
+                member_email="alice@example.com",
+                member_display_name="Alice",
+                archive_bucket="member_homes",
+            ),
+        ],
+        page_size=10,
+        account=team_discovery.account_info,
+        team_discovery=team_discovery,
+    )
+    adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("team.inventory.include"),
+        backend,
+    )
+    run_context, repository = make_run_context(tmp_path, "inventory_only", "team_admin")
+    job_config = JobConfig(
+        source_roots=["/Screenshots"],
+        output_dir=tmp_path,
+        mode="inventory_only",
+    )
+    DropboxInventoryService(repository, make_logger("team.inventory.include")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=job_config,
+        source_roots=["/"],
+        planner=ArchivePlanner("/Archive_PreMay2020", account_mode="team_admin").with_team_discovery(team_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        traversal_roots=team_discovery.traversal_roots,
+    )
+
+    rows = list(repository.iter_inventory_records(run_context.run_id))
+    assert {row["canonical_source_path"] for row in rows} == {"ns:ns-screenshots/old.png"}
+
+
+def test_empty_include_roots_scan_whole_team_inventory(tmp_path: Path) -> None:
+    team_discovery = make_team_discovery()
+    backend = FakeDropboxBackend(
+        [
+            make_file(
+                "/root-plan.docx",
+                dropbox_id="id:root-doc",
+                account_mode="team_admin",
+                namespace_id="ns-root",
+                namespace_type="team_space",
+                namespace_name="Acme",
+                archive_bucket="team_space",
+            ),
+            make_file(
+                "/Projects/old.psd",
+                dropbox_id="id:alice-old",
+                account_mode="team_admin",
+                namespace_id="ns-home-alice",
+                namespace_type="team_member_folder",
+                namespace_name="Alice Home",
+                member_id="dbmid:alice",
+                member_email="alice@example.com",
+                member_display_name="Alice",
+                archive_bucket="member_homes",
+            ),
+        ],
+        page_size=10,
+        account=team_discovery.account_info,
+        team_discovery=team_discovery,
+    )
+    adapter = FakeDropboxAdapter(
+        AuthConfig(method="access_token", account_mode="team_admin", access_token="token"),
+        make_logger("team.inventory.include.empty"),
+        backend,
+    )
+    run_context, repository = make_run_context(tmp_path, "inventory_only", "team_admin")
+    job_config = JobConfig(
+        source_roots=[],
+        output_dir=tmp_path,
+        mode="inventory_only",
+    )
+    DropboxInventoryService(repository, make_logger("team.inventory.include.empty")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=job_config,
+        source_roots=["/"],
+        planner=ArchivePlanner("/Archive_PreMay2020", account_mode="team_admin").with_team_discovery(team_discovery),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        traversal_roots=team_discovery.traversal_roots,
+    )
+
+    rows = list(repository.iter_inventory_records(run_context.run_id))
+    assert {row["canonical_source_path"] for row in rows} == {"ns:ns-root/root-plan.docx", "ns:ns-home-alice/Projects/old.psd"}
 
 
 def test_manifest_statuses_for_existing_same_and_conflict(tmp_path: Path) -> None:
