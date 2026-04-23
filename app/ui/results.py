@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,7 @@ class ResultsViewModel:
     metrics: list[MetricTile] = field(default_factory=list)
     status_slices: list[StatusSlice] = field(default_factory=list)
     top_folders: list[FolderResult] = field(default_factory=list)
+    already_archived: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
     blocked: list[str] = field(default_factory=list)
@@ -49,14 +51,31 @@ class ResultsViewModel:
         return bool(self.conflicts or self.failures or self.blocked)
 
     @property
+    def has_skipped_details(self) -> bool:
+        return bool(self.already_archived)
+
+    @property
+    def review_title(self) -> str:
+        if self.has_issues:
+            return "Needs attention"
+        if self.has_skipped_details:
+            return "Already archived"
+        return "Run details"
+
+    @property
     def success_message(self) -> str:
         failed = _metric_value(self.metrics, "Failed")
         copied = _metric_value(self.metrics, "Copied")
+        skipped = _metric_value(self.metrics, "Skipped")
         matched = _metric_value(self.metrics, "Matched")
         if failed:
             return f"{failed} item(s) need attention. Originals were not deleted or moved."
+        if self.conflicts:
+            return f"{len(self.conflicts)} conflict item(s) need review. Originals were not deleted or moved."
         if copied:
             return f"{copied} file(s) were copied into the archive. Originals stayed in place."
+        if self.mode == "copy_run" and skipped and not self.has_issues:
+            return f"All {skipped} matching file(s) were already present in the archive. No new copies were needed."
         if matched:
             return "The archive plan is ready. No Dropbox changes were made in preview mode."
         return "No files matched the selected cutoff. Your Dropbox was scanned successfully."
@@ -67,6 +86,7 @@ def load_results_view_model(run_dir: Path) -> ResultsViewModel:
     verification_path = run_dir / "verification_report.json"
     summary = _read_json(summary_path)
     verification_payload = _read_json(verification_path)
+    manifest_previews = _read_manifest_previews(run_dir)
     verification = summary.get("verification") or verification_payload.get("summary") or {}
     totals = summary.get("totals") or {}
     output_files = sorted([path for path in run_dir.glob("*") if path.is_file()], key=lambda path: path.name.casefold())
@@ -109,9 +129,10 @@ def load_results_view_model(run_dir: Path) -> ResultsViewModel:
         metrics=metrics,
         status_slices=status_slices,
         top_folders=top_folders[:8],
-        conflicts=list(summary.get("conflicts_preview") or []),
-        failures=list(summary.get("failures_preview") or []),
-        blocked=list(summary.get("blocked_preview") or []),
+        already_archived=list(summary.get("already_archived_preview") or manifest_previews["already_archived"]),
+        conflicts=list(summary.get("conflicts_preview") or manifest_previews["conflicts"]),
+        failures=list(summary.get("failures_preview") or manifest_previews["failures"]),
+        blocked=list(summary.get("blocked_preview") or manifest_previews["blocked"]),
         verification=verification,
         output_files=output_files,
     )
@@ -121,6 +142,35 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_manifest_previews(run_dir: Path, limit: int = 20) -> dict[str, list[str]]:
+    manifest_path = next((path for path in (run_dir / "manifest_copy_run.csv", run_dir / "manifest_dry_run.csv") if path.exists()), None)
+    previews = {
+        "already_archived": [],
+        "conflicts": [],
+        "failures": [],
+        "blocked": [],
+    }
+    if manifest_path is None:
+        return previews
+
+    status_targets = {
+        "skipped_existing_same": "already_archived",
+        "skipped_existing_conflict": "conflicts",
+        "failed": "failures",
+        "blocked_precondition": "blocked",
+    }
+    with manifest_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            target = status_targets.get(str(row.get("status") or ""))
+            if target is None or len(previews[target]) >= limit:
+                continue
+            previews[target].append(
+                f"{row.get('original_path', '')} -> {row.get('archive_path', '')}: {row.get('status_detail', '')}".strip()
+            )
+    return previews
 
 
 def _metric_value(metrics: list[MetricTile], label: str) -> int:

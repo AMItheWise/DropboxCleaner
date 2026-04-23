@@ -245,6 +245,7 @@ class SummaryReport:
     created_at: str
     totals: dict[str, int]
     folder_breakdown: list[FolderSummary]
+    already_archived_preview: list[str] = field(default_factory=list)
     conflicts_preview: list[str] = field(default_factory=list)
     failures_preview: list[str] = field(default_factory=list)
     blocked_preview: list[str] = field(default_factory=list)

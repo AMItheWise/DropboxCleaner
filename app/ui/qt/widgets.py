@@ -270,8 +270,9 @@ class IssueTable(QTableWidget):
         rows = [("Blocked", item) for item in result.blocked]
         rows += [("Failed", item) for item in result.failures]
         rows += [("Conflict", item) for item in result.conflicts]
+        rows += [("Already archived", item) for item in result.already_archived]
         if not rows:
-            rows = [("Clear", "No conflicts, failures, or blocked items recorded.")]
+            rows = [("Clear", "No conflicts, failures, blocked items, or skipped archive hits recorded.")]
         self.setRowCount(min(len(rows), 20))
         for row, (kind, detail) in enumerate(rows[:20]):
             self.setItem(row, 0, QTableWidgetItem(kind))

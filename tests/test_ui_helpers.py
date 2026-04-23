@@ -87,6 +87,7 @@ def test_results_view_model_parses_success_summary(tmp_path: Path) -> None:
                         "total_size": 100,
                     }
                 ],
+                "already_archived_preview": [],
                 "conflicts_preview": [],
                 "failures_preview": [],
                 "blocked_preview": [],
@@ -107,6 +108,95 @@ def test_results_view_model_parses_success_summary(tmp_path: Path) -> None:
     assert [path.name for path in result.output_files] == ["manifest_copy_run.csv", "summary.json"]
 
 
+def test_results_view_model_reports_already_archived_rerun(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-archived",
+                "mode": "copy_run",
+                "created_at": "2026-04-23T00:00:00Z",
+                "totals": {
+                    "items_scanned": 13,
+                    "files_matched": 12,
+                    "files_copied": 0,
+                    "files_skipped": 12,
+                    "files_failed": 0,
+                },
+                "folder_breakdown": [
+                    {
+                        "folder_path": "ns:14146115283",
+                        "display_folder_path": "/Screenshots",
+                        "matched_count": 12,
+                        "copied_count": 0,
+                        "failed_count": 0,
+                        "skipped_count": 12,
+                        "total_size": 9597169,
+                    }
+                ],
+                "already_archived_preview": [
+                    "/Screenshot 2015-01-04 12.43.34.png -> /Archive/Screenshot 2015-01-04 12.43.34.png: Destination already exists and matches the planned source metadata."
+                ],
+                "conflicts_preview": [],
+                "failures_preview": [],
+                "blocked_preview": [],
+                "verification": {"source_matched_file_count": 12, "archive_staged_file_count": 12},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_results_view_model(run_dir)
+
+    assert not result.has_issues
+    assert result.review_title == "Already archived"
+    assert len(result.already_archived) == 1
+    assert "already present in the archive" in result.success_message
+
+
+def test_results_view_model_falls_back_to_manifest_previews(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-fallback",
+                "mode": "copy_run",
+                "created_at": "2026-04-23T00:00:00Z",
+                "totals": {
+                    "items_scanned": 5,
+                    "files_matched": 2,
+                    "files_copied": 0,
+                    "files_skipped": 2,
+                    "files_failed": 0,
+                },
+                "folder_breakdown": [],
+                "conflicts_preview": [],
+                "failures_preview": [],
+                "blocked_preview": [],
+                "verification": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "manifest_copy_run.csv").write_text(
+        "\n".join(
+            [
+                "run_id,mode,original_path,canonical_source_path,archive_path,archive_canonical_path,dropbox_id,size,server_modified,client_modified,content_hash,status,status_detail,attempt_count,first_attempt_at,last_attempt_at,account_mode,namespace_id,namespace_type,namespace_name,member_id,member_email,member_display_name,archive_bucket",
+                "run-fallback,copy_run,/same.txt,ns:1/same.txt,/Archive/same.txt,ns:2/same.txt,id:1,1,,,,skipped_existing_same,Already there,1,,,,,,,,,team_space",
+                "run-fallback,copy_run,/conflict.txt,ns:1/conflict.txt,/Archive/conflict.txt,ns:2/conflict.txt,id:2,1,,,,skipped_existing_conflict,Conflict detected,1,,,,,,,,,team_space",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_results_view_model(run_dir)
+
+    assert result.already_archived == ["/same.txt -> /Archive/same.txt: Already there"]
+    assert result.conflicts == ["/conflict.txt -> /Archive/conflict.txt: Conflict detected"]
+
+
 def test_results_view_model_parses_issues_and_empty_run(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -118,6 +208,7 @@ def test_results_view_model_parses_issues_and_empty_run(tmp_path: Path) -> None:
                 "created_at": "2026-04-21T00:00:00Z",
                 "totals": {"items_scanned": 0, "files_matched": 0, "files_copied": 0, "files_skipped": 0, "files_failed": 1},
                 "folder_breakdown": [],
+                "already_archived_preview": [],
                 "conflicts_preview": ["conflict"],
                 "failures_preview": ["failed"],
                 "blocked_preview": ["blocked"],

@@ -233,6 +233,7 @@ class ReportWriter:
             created_at=run_context.created_at,
             totals=counters,
             folder_breakdown=folder_breakdown,
+            already_archived_preview=self._repository.preview_copy_statuses(run_context.run_id, "skipped_existing_same"),
             conflicts_preview=self._repository.preview_copy_statuses(run_context.run_id, "skipped_existing_conflict"),
             failures_preview=self._repository.preview_copy_statuses(run_context.run_id, "failed"),
             blocked_preview=self._repository.preview_copy_statuses(run_context.run_id, "blocked_precondition"),
@@ -318,6 +319,9 @@ class ReportWriter:
                 f"{folder.matched_count} | {folder.copied_count} | {folder.failed_count} | {folder.skipped_count} |"
             )
 
+        if report.already_archived_preview:
+            lines.extend(["", "## Already Archived", ""])
+            lines.extend(f"- {item}" for item in report.already_archived_preview)
         if report.conflicts_preview:
             lines.extend(["", "## Conflicts", ""])
             lines.extend(f"- {item}" for item in report.conflicts_preview)

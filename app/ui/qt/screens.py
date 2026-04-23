@@ -974,7 +974,7 @@ class ResultsScreen(QWidget):
         issues = card_frame()
         issues_layout = QVBoxLayout(issues)
         issues_layout.setContentsMargins(18, 18, 18, 18)
-        issue_title = QLabel("Needs attention")
+        issue_title = QLabel(result.review_title)
         issue_title.setObjectName("sectionTitle")
         issues_layout.addWidget(issue_title)
         issue_table = IssueTable()
