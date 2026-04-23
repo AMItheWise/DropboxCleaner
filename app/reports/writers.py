@@ -233,6 +233,7 @@ class ReportWriter:
             created_at=run_context.created_at,
             totals=counters,
             folder_breakdown=folder_breakdown,
+            already_archived_preview=self._repository.preview_copy_statuses(run_context.run_id, "skipped_existing_same"),
             conflicts_preview=self._repository.preview_copy_statuses(run_context.run_id, "skipped_existing_conflict"),
             failures_preview=self._repository.preview_copy_statuses(run_context.run_id, "failed"),
             blocked_preview=self._repository.preview_copy_statuses(run_context.run_id, "blocked_precondition"),
@@ -256,6 +257,7 @@ class ReportWriter:
             "mode": run_context.mode,
             "job": {
                 "source_roots": job_config.source_roots,
+                "excluded_roots": job_config.excluded_roots,
                 "cutoff_date": job_config.cutoff_date,
                 "date_filter_field": job_config.date_filter_field,
                 "archive_root": job_config.archive_root,
@@ -268,6 +270,7 @@ class ReportWriter:
                 "worker_count": job_config.worker_count,
                 "verify_after_run": job_config.verify_after_run,
                 "team_coverage_preset": job_config.team_coverage_preset,
+                "team_archive_layout": job_config.team_archive_layout,
             },
             "auth": {
                 "method": auth_config.method,
@@ -310,11 +313,15 @@ class ReportWriter:
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for folder in report.folder_breakdown:
+            folder_label = folder.display_folder_path or folder.folder_path
             lines.append(
-                f"| `{folder.folder_path}` | {folder.file_count} | {folder.total_size} | "
+                f"| `{folder_label}` | {folder.file_count} | {folder.total_size} | "
                 f"{folder.matched_count} | {folder.copied_count} | {folder.failed_count} | {folder.skipped_count} |"
             )
 
+        if report.already_archived_preview:
+            lines.extend(["", "## Already Archived", ""])
+            lines.extend(f"- {item}" for item in report.already_archived_preview)
         if report.conflicts_preview:
             lines.extend(["", "## Conflicts", ""])
             lines.extend(f"- {item}" for item in report.conflicts_preview)

@@ -11,12 +11,13 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 ## Highlights
 
-- Tkinter desktop UI plus CLI
+- Consumer-friendly guided desktop UI plus CLI
 - Shared backend for GUI and CLI
 - Personal mode and team-admin mode
 - Full metadata traversal with pagination
 - Namespace-aware team inventory and resumable copy state
 - Cutoff filtering based on `server_modified`, `client_modified`, or the oldest of both
+- Optional excluded folders that are skipped during inventory and copy planning
 - Dry-run mode with planned manifests
 - Safe copy-first archive staging inside Dropbox
 - SQLite-backed resumability, logs, verification, and summaries
@@ -53,6 +54,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 - Python 3.11+
 - A Dropbox API app
+- PySide6 is installed from `requirements.txt` for the desktop UI
 
 Recommended app scopes by mode:
 
@@ -90,10 +92,36 @@ py -3.11 -m pip install -r requirements-dev.txt
 py -3.11 -m app
 ```
 
+The GUI walks non-technical users through:
+
+- choosing `Personal Dropbox` or `Team Dropbox`
+- connecting with OAuth
+- choosing a cutoff date with a calendar
+- browsing Dropbox folders for archive/source paths
+- previewing or copying archive files
+- reviewing visual results, issues, and output files
+
 ## Run The CLI
 
 ```powershell
 py -3.11 -m app.cli.main --help
+```
+
+## Build Double-Click Apps
+
+Packaging instructions are in [docs/PACKAGING.md](docs/PACKAGING.md).
+GitHub Actions also builds unsigned zipped Windows and macOS artifacts for pull requests, pushes to `main`/`master`, and manual workflow runs.
+
+Windows:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+macOS:
+
+```bash
+./scripts/build_macos.sh
 ```
 
 ## Authentication
@@ -122,6 +150,8 @@ py -3.11 -m app.cli.main inventory ^
   --output-dir ./outputs
 ```
 
+In the GUI, the `Folders to include` list can be left empty. Empty means Dropbox Cleaner inventories the whole Dropbox account. Add one or more folders only when you want to limit the run.
+
 ### Personal Dry Run
 
 ```powershell
@@ -141,7 +171,7 @@ py -3.11 -m app.cli.main dry-run ^
 py -3.11 -m app.cli.main dry-run ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
@@ -153,10 +183,35 @@ py -3.11 -m app.cli.main dry-run ^
 py -3.11 -m app.cli.main copy ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
+```
+
+Team-admin archive layout defaults to `segmented`, which creates clear buckets such as `team_space`, `member_homes`, and `shared_namespaces`. If you want one combined archive tree, use `--team-archive-layout merged`. Existing conflict handling still prevents silent overwrites when two files would land at the same archive path.
+
+```powershell
+py -3.11 -m app.cli.main copy ^
+  --account-mode team_admin ^
+  --use-saved-auth ^
+  --team-coverage-preset team_owned_only ^
+  --team-archive-layout merged ^
+  --archive-root /Archive_PreMay2020
+```
+
+### Exclude Folders From A Run
+
+Use excluded folders for content that should not be inventoried or copied. The GUI has a `Folders to skip` section; the CLI supports repeated `--exclude-root` flags.
+
+```powershell
+py -3.11 -m app.cli.main dry-run ^
+  --account-mode personal ^
+  --use-saved-auth ^
+  --source-root / ^
+  --exclude-root /Screenshots ^
+  --exclude-root /Personal/DoNotArchive ^
+  --archive-root /Archive_PreMay2020
 ```
 
 ### Cutoff Date Field
@@ -169,7 +224,7 @@ If Dropbox's web UI shows old file dates but a run does not match those files, c
 py -3.11 -m app.cli.main dry-run ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --cutoff-date 2020-05-01 ^
   --date-filter-field oldest_modified ^
   --archive-root /Archive_PreMay2020
@@ -196,7 +251,7 @@ py -3.11 -m app.cli.main verify ^
 ## Team-Admin Notes
 
 - `team_admin` mode is designed for whole-team inventory from one admin-authorized app.
-- The default coverage preset is `all_team_content`.
+- The default coverage preset is `team_owned_only`. Choose `all_team_content` only when you also want active member home namespaces included.
 - Team reports and manifests are namespace-aware and include:
   - `account_mode`
   - `namespace_id`

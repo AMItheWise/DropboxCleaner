@@ -11,6 +11,7 @@ RunMode = Literal["inventory_only", "dry_run", "copy_run"]
 ConflictPolicy = Literal["safe_skip", "abort_run"]
 TeamCoveragePreset = Literal["all_team_content", "team_owned_only"]
 DateFilterField = Literal["server_modified", "client_modified", "oldest_modified"]
+TeamArchiveLayout = Literal["segmented", "merged"]
 
 DEFAULT_PERSONAL_SCOPES = (
     "account_info.read",
@@ -56,6 +57,7 @@ class AuthConfig:
 @dataclass(slots=True)
 class JobConfig:
     source_roots: list[str]
+    excluded_roots: list[str] = field(default_factory=list)
     cutoff_date: str = "2020-05-01"
     date_filter_field: DateFilterField = "server_modified"
     archive_root: str = "/Archive_PreMay2020"
@@ -70,7 +72,8 @@ class JobConfig:
     worker_count: int = 1
     verify_after_run: bool = True
     start_fresh: bool = False
-    team_coverage_preset: TeamCoveragePreset = "all_team_content"
+    team_coverage_preset: TeamCoveragePreset = "team_owned_only"
+    team_archive_layout: TeamArchiveLayout = "segmented"
 
 
 @dataclass(slots=True)

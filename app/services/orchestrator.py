@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from queue import Queue
 
-from app.dropbox_client.adapter import DropboxAdapter
+from app.dropbox_client.adapter import DropboxAdapter, filter_team_discovery_for_job
 from app.dropbox_client.errors import ConflictPolicyAbortError
 from app.models.config import AuthConfig, JobConfig, OutputPaths, RunContext
 from app.models.events import ProgressSnapshot
@@ -38,9 +38,7 @@ class RunOrchestrator:
     ) -> RunResult:
         cancellation_token = cancellation_token or CancellationToken()
         if auth_config.account_mode == "personal":
-            source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots)
-            if not source_roots:
-                raise ValueError("At least one Dropbox source root is required.")
+            source_roots, ignored_roots = dedupe_source_roots(job_config.source_roots or ["/"])
             job_config.source_roots = source_roots
         else:
             ignored_roots = []
@@ -48,6 +46,8 @@ class RunOrchestrator:
                 job_config.source_roots = ["/"]
 
         job_config.archive_root = normalize_dropbox_path(job_config.archive_root)
+        excluded_roots, ignored_excluded_roots = dedupe_source_roots(job_config.excluded_roots)
+        job_config.excluded_roots = excluded_roots
 
         run_id = new_run_id()
         created_at = isoformat_utc(utc_now()) or ""
@@ -71,6 +71,15 @@ class RunOrchestrator:
                 "ignored_source_roots",
                 "Ignored overlapping or redundant source roots.",
                 {"ignored_roots": ignored_roots},
+            )
+        if ignored_excluded_roots:
+            repository.record_event(
+                run_id,
+                "validation",
+                "INFO",
+                "ignored_excluded_roots",
+                "Ignored overlapping or redundant excluded folders.",
+                {"ignored_roots": ignored_excluded_roots},
             )
 
         report_writer.write_config_snapshot(
@@ -118,6 +127,7 @@ class RunOrchestrator:
         config_payload = json.loads(run_row["config_json"])
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
+            excluded_roots=config_payload.get("excluded_roots", []),
             cutoff_date=config_payload["cutoff_date"],
             date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
@@ -130,7 +140,8 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=config_payload["verify_after_run"],
-            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_coverage_preset=config_payload.get("team_coverage_preset", "team_owned_only"),
+            team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         return self._execute_workflow(
             repository=repository,
@@ -170,6 +181,7 @@ class RunOrchestrator:
         config_payload = json.loads(run_row["config_json"])
         job_config = JobConfig(
             source_roots=config_payload["source_roots"],
+            excluded_roots=config_payload.get("excluded_roots", []),
             cutoff_date=config_payload["cutoff_date"],
             date_filter_field=config_payload.get("date_filter_field", "server_modified"),
             archive_root=config_payload["archive_root"],
@@ -182,7 +194,8 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=True,
-            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_coverage_preset=config_payload.get("team_coverage_preset", "team_owned_only"),
+            team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         adapter = self._adapter_factory(auth_config, logger)
         try:
@@ -228,7 +241,13 @@ class RunOrchestrator:
     ) -> RunResult:
         verification_summary: dict = {}
         adapter = self._adapter_factory(auth_config, logger)
-        planner = ArchivePlanner(job_config.archive_root, job_config.exclude_archive_destination, auth_config.account_mode)
+        planner = ArchivePlanner(
+            job_config.archive_root,
+            job_config.exclude_archive_destination,
+            auth_config.account_mode,
+            job_config.excluded_roots,
+            job_config.team_archive_layout,
+        )
         traversal_roots = None
         try:
             if emit is not None:
@@ -238,9 +257,10 @@ class RunOrchestrator:
             if auth_config.account_mode == "team_admin":
                 if emit is not None:
                     emit(ProgressSnapshot(phase="team_discovery", message="Discovering team members and namespaces"))
-                team_discovery = adapter.get_team_discovery(job_config)
+                team_discovery = filter_team_discovery_for_job(adapter.get_team_discovery(job_config), job_config)
                 create_archive = run_context.mode == "copy_run"
                 team_discovery = adapter.prepare_archive_destination(team_discovery, job_config.archive_root, create=create_archive)
+                team_discovery = filter_team_discovery_for_job(team_discovery, job_config)
                 planner.with_team_discovery(team_discovery)
                 traversal_roots = team_discovery.traversal_roots
                 repository.record_event(
@@ -253,7 +273,7 @@ class RunOrchestrator:
                         "team_name": account.team_name,
                         "team_model": team_discovery.team_model,
                         "active_member_count": account.active_member_count,
-                        "namespace_count": account.namespace_count,
+                        "namespace_count": team_discovery.account_info.namespace_count,
                         "archive_status_detail": team_discovery.archive_status_detail,
                     },
                 )
@@ -309,6 +329,8 @@ class RunOrchestrator:
                     emit=emit,
                     cancellation_token=cancellation_token,
                     dry_run=run_context.mode == "dry_run",
+                    adapter_factory=self._adapter_factory,
+                    auth_config=auth_config,
                 )
 
             if should_run_verify:

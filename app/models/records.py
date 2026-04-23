@@ -228,6 +228,7 @@ class VerificationRecord:
 @dataclass(slots=True)
 class FolderSummary:
     folder_path: str
+    display_folder_path: str | None = None
     file_count: int = 0
     total_size: int = 0
     matched_count: int = 0
@@ -244,6 +245,7 @@ class SummaryReport:
     created_at: str
     totals: dict[str, int]
     folder_breakdown: list[FolderSummary]
+    already_archived_preview: list[str] = field(default_factory=list)
     conflicts_preview: list[str] = field(default_factory=list)
     failures_preview: list[str] = field(default_factory=list)
     blocked_preview: list[str] = field(default_factory=list)

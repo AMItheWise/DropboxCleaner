@@ -9,6 +9,7 @@ from typing import Any
 
 from app.models.config import AuthConfig, JobConfig, RunContext
 from app.models.records import CopyJobRecord, FolderSummary, InventoryRecord, MatchedFileRecord
+from app.utils.paths import join_dropbox_path, normalize_dropbox_path, split_namespace_relative_path
 from app.utils.time import isoformat_utc, utc_now
 
 
@@ -178,6 +179,7 @@ class RunStateRepository:
     def create_run(self, run_context: RunContext, job_config: JobConfig, auth_config: AuthConfig) -> None:
         payload = {
             "source_roots": job_config.source_roots,
+            "excluded_roots": job_config.excluded_roots,
             "cutoff_date": job_config.cutoff_date,
             "date_filter_field": job_config.date_filter_field,
             "archive_root": job_config.archive_root,
@@ -188,6 +190,7 @@ class RunStateRepository:
             "worker_count": job_config.worker_count,
             "verify_after_run": job_config.verify_after_run,
             "team_coverage_preset": job_config.team_coverage_preset,
+            "team_archive_layout": job_config.team_archive_layout,
         }
         auth_payload = {
             "method": auth_config.method,
@@ -696,7 +699,7 @@ class RunStateRepository:
             count = int(row["count"])
             if status == "copied":
                 counters["files_copied"] += count
-            elif status.startswith("skipped"):
+            elif status.startswith("skipped") or status == "excluded":
                 counters["files_skipped"] += count
             elif status in ("failed", "blocked_precondition"):
                 counters["files_failed"] += count
@@ -708,15 +711,24 @@ class RunStateRepository:
                 """
                 SELECT
                     canonical_parent_path AS folder_path,
+                    account_mode,
+                    namespace_id,
+                    namespace_type,
+                    namespace_name,
+                    member_email,
+                    member_display_name,
+                    archive_bucket,
                     COUNT(*) AS file_count,
                     COALESCE(SUM(COALESCE(size, 0)), 0) AS total_size,
                     COUNT(*) AS matched_count,
                     SUM(CASE WHEN status = 'copied' THEN 1 ELSE 0 END) AS copied_count,
                     SUM(CASE WHEN status IN ('failed', 'blocked_precondition') THEN 1 ELSE 0 END) AS failed_count,
-                    SUM(CASE WHEN status LIKE 'skipped%' THEN 1 ELSE 0 END) AS skipped_count
+                    SUM(CASE WHEN status LIKE 'skipped%' OR status = 'excluded' THEN 1 ELSE 0 END) AS skipped_count
                 FROM copy_jobs
                 WHERE run_id = ?
-                GROUP BY canonical_parent_path
+                GROUP BY
+                    canonical_parent_path, account_mode, namespace_id, namespace_type,
+                    namespace_name, member_email, member_display_name, archive_bucket
                 ORDER BY canonical_parent_path
                 """,
                 (run_id,),
@@ -724,6 +736,7 @@ class RunStateRepository:
         return [
             FolderSummary(
                 folder_path=row["folder_path"],
+                display_folder_path=self._display_folder_path(row),
                 file_count=int(row["file_count"]),
                 total_size=int(row["total_size"]),
                 matched_count=int(row["matched_count"] or 0),
@@ -733,6 +746,24 @@ class RunStateRepository:
             )
             for row in rows
         ]
+
+    def _display_folder_path(self, row: sqlite3.Row) -> str:
+        folder_path = str(row["folder_path"] or "/")
+        account_mode = str(row["account_mode"] or "personal")
+        if account_mode != "team_admin" or not folder_path.startswith("ns:"):
+            return folder_path
+        namespace_id, relative_path = split_namespace_relative_path(folder_path)
+        relative_path = normalize_dropbox_path(relative_path)
+        namespace_type = str(row["namespace_type"] or "")
+        archive_bucket = str(row["archive_bucket"] or "")
+        namespace_name = row["namespace_name"] or namespace_id or "Dropbox"
+        if archive_bucket == "member_homes" or namespace_type == "team_member_folder":
+            owner = row["member_display_name"] or row["member_email"] or namespace_name or namespace_id or "member"
+            return f"Member home: {owner}" if relative_path == "/" else f"Member home: {owner}{relative_path}"
+        if namespace_type in ("team_folder", "shared_folder") and namespace_name:
+            root = normalize_dropbox_path(f"/{namespace_name}")
+            return root if relative_path == "/" else join_dropbox_path(root, relative_path)
+        return relative_path
 
     def preview_copy_statuses(self, run_id: str, status_prefix: str, limit: int = 20) -> list[str]:
         if status_prefix.endswith("%"):

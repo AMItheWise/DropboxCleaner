@@ -2,3 +2,4 @@ dropbox>=12.0.2,<13
 keyring>=25.0.0,<26
 platformdirs>=4.0.0,<5
 PyYAML>=6.0.0,<7
+PySide6>=6.8,<7
