@@ -245,7 +245,7 @@ class DropboxCleanerMainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Connect Dropbox first",
-                "Finish authorization or test the saved connection before continuing.",
+                "Finish Dropbox authorization or press Use saved connection before continuing.",
             )
             return
         self.stack.setCurrentWidget(self.settings_screen)
@@ -448,10 +448,10 @@ class DropboxCleanerMainWindow(QMainWindow):
             self.connection_screen.app_key_edit.setText(saved.app_key)
         if saved.admin_member_id:
             self.connection_screen.admin_member_id_edit.setText(saved.admin_member_id)
-        self._connected_account_summary = "Saved Dropbox connection found. Test it before continuing."
+        self._connected_account_summary = "Saved Dropbox connection found. Press Use saved connection to continue."
         self.connection_screen.set_saved_credentials_available(
             True,
-            "Use the Dropbox authorization saved on this computer, or reconnect if you need a different account or new permissions.",
+            "Press Use saved connection to keep using the Dropbox authorization saved on this computer, or connect a different account if needed.",
         )
         self.connection_screen.set_status(self._connected_account_summary)
         self.connection_screen.set_connected(False)

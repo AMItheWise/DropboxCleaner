@@ -140,6 +140,12 @@ def app_stylesheet() -> str:
         border-color: {ACCENT};
     }}
 
+    QPushButton[role="primary"]:disabled {{
+        color: #A6B5B9;
+        background: #E2EAE8;
+        border-color: #D7E2DF;
+    }}
+
     QPushButton[role="primary"]:hover {{
         background: {ACCENT_DARK};
         border-color: {ACCENT_DARK};
@@ -154,6 +160,12 @@ def app_stylesheet() -> str:
         background: {SUCCESS};
         color: white;
         border-color: {SUCCESS};
+    }}
+
+    QPushButton[role="success"]:disabled {{
+        color: #A6B5B9;
+        background: #E2EAE8;
+        border-color: #D7E2DF;
     }}
 
     QPushButton[role="success"]:hover {{
@@ -172,6 +184,12 @@ def app_stylesheet() -> str:
         background: #FFF8F8;
     }}
 
+    QPushButton[role="danger"]:disabled {{
+        color: #C7A8A8;
+        background: #F7F1F1;
+        border-color: #EBDCDC;
+    }}
+
     QPushButton[role="danger"]:hover {{
         background: #FCECEC;
         border-color: #DBA9A9;
@@ -184,6 +202,12 @@ def app_stylesheet() -> str:
 
     QPushButton[role="ghost"] {{
         color: {ACCENT};
+        border-color: transparent;
+        background: transparent;
+    }}
+
+    QPushButton[role="ghost"]:disabled {{
+        color: #A6B5B9;
         border-color: transparent;
         background: transparent;
     }}
@@ -205,6 +229,12 @@ def app_stylesheet() -> str:
         text-align: left;
     }}
 
+    QPushButton[role="selectedCard"]:disabled {{
+        color: #A6B5B9;
+        background: #E2EAE8;
+        border-color: #D7E2DF;
+    }}
+
     QPushButton[role="selectedCard"]:hover {{
         background: {ACCENT_DARK};
         border-color: {ACCENT_DARK};
@@ -222,6 +252,12 @@ def app_stylesheet() -> str:
         text-align: left;
         padding: 18px;
         border-radius: 16px;
+    }}
+
+    QPushButton[role="card"]:disabled {{
+        color: #A6B5B9;
+        background: #F2F5F4;
+        border-color: #E1E8E5;
     }}
 
     QPushButton[role="card"]:hover {{

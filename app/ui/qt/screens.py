@@ -155,7 +155,7 @@ class ConnectionScreen(QWidget):
         saved_title = QLabel("Saved Dropbox connection")
         saved_title.setObjectName("sectionTitle")
         self.saved_summary_label = QLabel(
-            "Use the Dropbox authorization saved on this computer, or reconnect if you need a different account or new permissions."
+            "Press Use saved connection to keep using the Dropbox authorization saved on this computer, or connect a different account if needed."
         )
         self.saved_summary_label.setObjectName("body")
         self.saved_summary_label.setWordWrap(True)
@@ -274,7 +274,7 @@ class ConnectionScreen(QWidget):
         main_layout.addWidget(self.advanced)
         self._set_advanced_visible(False)
 
-        self.continue_button = QPushButton("Continue to settings")
+        self.continue_button = QPushButton("Continue")
         theme.set_role(self.continue_button, "primary")
         self.continue_button.clicked.connect(self.continue_requested.emit)
         self.continue_button.setEnabled(False)
