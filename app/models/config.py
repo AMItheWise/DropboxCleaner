@@ -72,7 +72,7 @@ class JobConfig:
     worker_count: int = 1
     verify_after_run: bool = True
     start_fresh: bool = False
-    team_coverage_preset: TeamCoveragePreset = "all_team_content"
+    team_coverage_preset: TeamCoveragePreset = "team_owned_only"
     team_archive_layout: TeamArchiveLayout = "segmented"
 
 

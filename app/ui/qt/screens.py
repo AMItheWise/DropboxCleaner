@@ -164,9 +164,9 @@ class ConnectionScreen(QWidget):
         self.use_saved_button.setToolTip("Test the locally saved Dropbox authorization and continue if it is still valid.")
         theme.set_role(self.use_saved_button, "primary")
         self.use_saved_button.clicked.connect(self.test_connection_requested.emit)
-        self.reconnect_button = QPushButton("Reconnect")
+        self.reconnect_button = QPushButton("Connect a different account")
         theme.set_role(self.reconnect_button, "ghost")
-        self.reconnect_button.setToolTip("Start Dropbox authorization again for a different account or updated permissions.")
+        self.reconnect_button.setToolTip("Keep the saved connection for now, but show the Dropbox authorization form again.")
         self.reconnect_button.clicked.connect(self._show_reconnect_form)
         saved_actions.addWidget(self.use_saved_button)
         saved_actions.addWidget(self.reconnect_button)
@@ -317,7 +317,7 @@ class ConnectionScreen(QWidget):
     def _show_reconnect_form(self) -> None:
         self.set_saved_credentials_available(False)
         self.set_connected(False)
-        self.set_status("Reconnect with Dropbox, then paste the new authorization code.")
+        self.set_status("Connect with Dropbox again, then paste the new authorization code.")
 
     def _apply_connection_form_visibility(self) -> None:
         show_oauth = not self._saved_credentials_available
@@ -552,7 +552,7 @@ class SettingsScreen(QWidget):
         team_layout = self.team_card.layout()
         self.team_coverage_combo = QComboBox()
         self.team_coverage_combo.addItems([choice.label for choice in TEAM_COVERAGE_CHOICES])
-        self.team_coverage_combo.setCurrentText(team_coverage_value_to_label("all_team_content"))
+        self.team_coverage_combo.setCurrentText(team_coverage_value_to_label("team_owned_only"))
         team_layout.addWidget(self.team_coverage_combo)
         team_archive_layout_label = QLabel("Archive layout")
         team_archive_layout_label.setObjectName("body")

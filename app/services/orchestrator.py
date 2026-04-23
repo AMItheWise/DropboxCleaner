@@ -140,7 +140,7 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=config_payload["verify_after_run"],
-            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_coverage_preset=config_payload.get("team_coverage_preset", "team_owned_only"),
             team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         return self._execute_workflow(
@@ -194,7 +194,7 @@ class RunOrchestrator:
             exclude_archive_destination=config_payload["exclude_archive_destination"],
             worker_count=config_payload["worker_count"],
             verify_after_run=True,
-            team_coverage_preset=config_payload.get("team_coverage_preset", "all_team_content"),
+            team_coverage_preset=config_payload.get("team_coverage_preset", "team_owned_only"),
             team_archive_layout=config_payload.get("team_archive_layout", "segmented"),
         )
         adapter = self._adapter_factory(auth_config, logger)
@@ -329,6 +329,8 @@ class RunOrchestrator:
                     emit=emit,
                     cancellation_token=cancellation_token,
                     dry_run=run_context.mode == "dry_run",
+                    adapter_factory=self._adapter_factory,
+                    auth_config=auth_config,
                 )
 
             if should_run_verify:

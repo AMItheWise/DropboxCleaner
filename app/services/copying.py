@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import PurePosixPath
 
 from app.dropbox_client.adapter import DropboxAdapter
@@ -11,7 +14,7 @@ from app.dropbox_client.errors import (
     PathNotFoundError,
     TemporaryDropboxError,
 )
-from app.models.config import JobConfig, RunContext
+from app.models.config import AuthConfig, JobConfig, RunContext
 from app.models.events import ProgressSnapshot
 from app.models.records import RemoteEntry
 from app.persistence.repository import RunStateRepository
@@ -36,6 +39,7 @@ class ArchiveCopyService:
         self._repository = repository
         self._logger = logger
         self._ensured_folders: set[str] = set()
+        self._folder_lock = threading.RLock()
 
     def run(
         self,
@@ -47,10 +51,13 @@ class ArchiveCopyService:
         emit: ProgressEmitter | None,
         cancellation_token: CancellationToken,
         dry_run: bool,
+        adapter_factory: Callable[[AuthConfig, logging.Logger], DropboxAdapter] | None = None,
+        auth_config: AuthConfig | None = None,
     ) -> None:
-        if job_config.worker_count > 1:
-            self._logger.warning(
-                "Worker count %s requested. Copy execution remains single-threaded in v1 for safety and auditability.",
+        worker_count = max(1, int(job_config.worker_count))
+        if worker_count > 1:
+            self._logger.info(
+                "Copy phase will use up to %s worker threads.",
                 job_config.worker_count,
                 extra={"phase": "copy"},
             )
@@ -96,36 +103,122 @@ class ArchiveCopyService:
         elif not dry_run:
             self._ensure_folder_chain(adapter, planner.archive_root, job_config)
 
-        last_job_key: str | None = None
-        while True:
-            cancellation_token.check()
-            pending_jobs = self._repository.fetch_copy_jobs(
-                run_context.run_id,
-                statuses=PENDING_COPY_STATUSES,
-                limit=max(1, job_config.batch_size),
-                after_job_key=last_job_key,
-            )
-            if not pending_jobs:
-                break
-            for job in pending_jobs:
+        worker_adapters: list[DropboxAdapter] = []
+        worker_adapters_lock = threading.Lock()
+        worker_local = threading.local()
+
+        def adapter_for_worker() -> DropboxAdapter:
+            if worker_count <= 1 or adapter_factory is None or auth_config is None:
+                return adapter
+            local_adapter = getattr(worker_local, "adapter", None)
+            if local_adapter is None:
+                local_adapter = adapter_factory(auth_config, self._logger)
+                setattr(worker_local, "adapter", local_adapter)
+                with worker_adapters_lock:
+                    worker_adapters.append(local_adapter)
+            return local_adapter
+
+        try:
+            last_job_key: str | None = None
+            while True:
                 cancellation_token.check()
-                self._process_job(
-                    adapter=adapter,
-                    run_id=run_context.run_id,
+                pending_jobs = self._repository.fetch_copy_jobs(
+                    run_context.run_id,
+                    statuses=PENDING_COPY_STATUSES,
+                    limit=max(1, job_config.batch_size),
+                    after_job_key=last_job_key,
+                )
+                if not pending_jobs:
+                    break
+                if worker_count <= 1 or len(pending_jobs) == 1:
+                    for job in pending_jobs:
+                        cancellation_token.check()
+                        self._process_job(
+                            adapter=adapter,
+                            run_id=run_context.run_id,
+                            job=job,
+                            job_config=job_config,
+                            planner=planner,
+                            dry_run=dry_run,
+                        )
+                        self._emit_copy_progress(emit, run_context.run_id, dry_run, job)
+                else:
+                    self._process_jobs_parallel(
+                        adapter_for_worker=adapter_for_worker,
+                        run_id=run_context.run_id,
+                        jobs=pending_jobs,
+                        job_config=job_config,
+                        planner=planner,
+                        dry_run=dry_run,
+                        emit=emit,
+                    )
+                last_job_key = pending_jobs[-1]["canonical_source_path"]
+        finally:
+            for worker_adapter in worker_adapters:
+                try:
+                    worker_adapter.close()
+                except Exception:  # noqa: BLE001
+                    continue
+
+    def _process_jobs_parallel(
+        self,
+        *,
+        adapter_for_worker: Callable[[], DropboxAdapter],
+        run_id: str,
+        jobs: list[dict],
+        job_config: JobConfig,
+        planner: ArchivePlanner,
+        dry_run: bool,
+        emit: ProgressEmitter | None,
+    ) -> None:
+        max_workers = min(max(1, int(job_config.worker_count)), len(jobs))
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="dropbox-copy") as executor:
+            futures = {
+                executor.submit(
+                    self._process_job_with_worker_adapter,
+                    adapter_for_worker=adapter_for_worker,
+                    run_id=run_id,
                     job=job,
                     job_config=job_config,
                     planner=planner,
                     dry_run=dry_run,
-                )
-                if emit is not None:
-                    emit(
-                        ProgressSnapshot(
-                            phase="copy" if not dry_run else "dry_run",
-                            message=f"Processing {job['original_path']}",
-                            counters=self._repository.get_counters(run_context.run_id),
-                        )
-                    )
-            last_job_key = pending_jobs[-1]["canonical_source_path"]
+                ): job
+                for job in jobs
+            }
+            for future in as_completed(futures):
+                job = futures[future]
+                future.result()
+                self._emit_copy_progress(emit, run_id, dry_run, job)
+
+    def _process_job_with_worker_adapter(
+        self,
+        *,
+        adapter_for_worker: Callable[[], DropboxAdapter],
+        run_id: str,
+        job: dict,
+        job_config: JobConfig,
+        planner: ArchivePlanner,
+        dry_run: bool,
+    ) -> None:
+        self._process_job(
+            adapter=adapter_for_worker(),
+            run_id=run_id,
+            job=job,
+            job_config=job_config,
+            planner=planner,
+            dry_run=dry_run,
+        )
+
+    def _emit_copy_progress(self, emit: ProgressEmitter | None, run_id: str, dry_run: bool, job: dict) -> None:
+        if emit is None:
+            return
+        emit(
+            ProgressSnapshot(
+                phase="copy" if not dry_run else "dry_run",
+                message=f"Processing {job['original_path']}",
+                counters=self._repository.get_counters(run_id),
+            )
+        )
 
     def _process_job(
         self,
@@ -323,26 +416,27 @@ class ArchiveCopyService:
         )
 
     def _ensure_folder_chain(self, adapter: DropboxAdapter, path: str, job_config: JobConfig) -> None:
-        namespace_id, relative_path = split_namespace_relative_path(path)
-        normalized = normalize_dropbox_path(relative_path)
-        if normalized == "/":
-            return
-        current_relative = ""
-        for part in PurePosixPath(normalized).parts:
-            if part == "/":
-                continue
-            current_relative = f"{current_relative}/{part}" if current_relative else f"/{part}"
-            current = namespace_relative_path(namespace_id, current_relative)
-            if current in self._ensured_folders:
-                continue
-            retry_call(
-                operation_name=f"create_folder_if_missing({current})",
-                func=lambda current_path=current: adapter.create_folder_if_missing(current_path),
-                logger=self._logger,
-                retry_settings=job_config.retry,
-                is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
-            )
-            self._ensured_folders.add(current)
+        with self._folder_lock:
+            namespace_id, relative_path = split_namespace_relative_path(path)
+            normalized = normalize_dropbox_path(relative_path)
+            if normalized == "/":
+                return
+            current_relative = ""
+            for part in PurePosixPath(normalized).parts:
+                if part == "/":
+                    continue
+                current_relative = f"{current_relative}/{part}" if current_relative else f"/{part}"
+                current = namespace_relative_path(namespace_id, current_relative)
+                if current in self._ensured_folders:
+                    continue
+                retry_call(
+                    operation_name=f"create_folder_if_missing({current})",
+                    func=lambda current_path=current: adapter.create_folder_if_missing(current_path),
+                    logger=self._logger,
+                    retry_settings=job_config.retry,
+                    is_retryable=lambda exc: isinstance(exc, TemporaryDropboxError),
+                )
+                self._ensured_folders.add(current)
 
     def _is_existing_copy_same(self, existing: RemoteEntry, job: dict) -> bool:
         if existing.item_type != "file":

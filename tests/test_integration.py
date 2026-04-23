@@ -80,7 +80,11 @@ def test_integration_inventory_dry_run_and_resumed_copy(tmp_path: Path) -> None:
     orchestrator = RunOrchestrator(adapter_factory=fake_adapter_factory(backend))
 
     dry_run_result = orchestrator.run(
-        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="dry_run"),  # type: ignore[arg-type]
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="dry_run",
+        ),  # type: ignore[arg-type]
         auth_config=auth_config,
     )
     dry_run_dir = Path(dry_run_result.run_dir)
@@ -98,7 +102,11 @@ def test_integration_inventory_dry_run_and_resumed_copy(tmp_path: Path) -> None:
     )
     copy_orchestrator = RunOrchestrator(adapter_factory=fake_adapter_factory(backend))
     copy_orchestrator.run(
-        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="copy_run",
+        ),  # type: ignore[arg-type]
         auth_config=auth_config,
     )
 
@@ -168,7 +176,12 @@ def test_integration_team_admin_dry_run_and_resumed_copy(tmp_path: Path) -> None
     orchestrator = RunOrchestrator(adapter_factory=fake_adapter_factory(backend))
 
     dry_run_result = orchestrator.run(
-        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="dry_run"),  # type: ignore[arg-type]
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="dry_run",
+            team_coverage_preset="all_team_content",
+        ),  # type: ignore[arg-type]
         auth_config=auth_config,
     )
     dry_run_dir = Path(dry_run_result.run_dir)
@@ -184,7 +197,12 @@ def test_integration_team_admin_dry_run_and_resumed_copy(tmp_path: Path) -> None
     )
     copy_orchestrator = RunOrchestrator(adapter_factory=fake_adapter_factory(backend))
     copy_orchestrator.run(
-        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="copy_run",
+            team_coverage_preset="all_team_content",
+        ),  # type: ignore[arg-type]
         auth_config=auth_config,
     )
 

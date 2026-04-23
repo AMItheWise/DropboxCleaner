@@ -35,7 +35,7 @@ job:
   worker_count: 1
   include_folders_in_inventory: true
   exclude_archive_destination: true
-  team_coverage_preset: "all_team_content"
+  team_coverage_preset: "team_owned_only"
   # segmented = team_space/member_homes/shared_namespaces buckets.
   # merged = one archive tree using visible folder paths where possible.
   team_archive_layout: "segmented"

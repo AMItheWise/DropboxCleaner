@@ -57,6 +57,7 @@ def test_friendly_choice_mappings() -> None:
     assert date_filter_label_to_value("Original file date") == "client_modified"
     assert date_filter_label_to_value("Oldest available date") == "oldest_modified"
     assert team_coverage_label_to_value("Team-owned only") == "team_owned_only"
+    assert team_coverage_label_to_value("not a real option") == "team_owned_only"
     assert team_archive_layout_label_to_value("Merge into one archive folder") == "merged"
 
 

@@ -1195,6 +1195,61 @@ def test_retry_logic(tmp_path: Path) -> None:
     assert backend.copy_calls == [("/Src/retry.txt", "/Archive_PreMay2020/Src/retry.txt")]
 
 
+def test_copy_worker_count_processes_jobs_in_parallel_mode(tmp_path: Path) -> None:
+    run_context, repository = make_run_context(tmp_path, "copy_run")
+    seed_inventory(
+        repository,
+        run_context,
+        [
+            {
+                "item_type": "file",
+                "full_path": f"/Src/{name}.txt",
+                "dropbox_id": f"id:{name}",
+                "size": 5,
+                "server_modified": "2019-01-01T00:00:00Z",
+                "client_modified": "2019-01-01T00:00:00Z",
+                "content_hash": f"hash-{name}",
+            }
+            for name in ("a", "b", "c")
+        ],
+    )
+    FilterService(repository, make_logger("filter.parallel")).run(
+        run_context=run_context,
+        job_config=JobConfig(source_roots=["/"], output_dir=tmp_path, mode="copy_run"),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020"),
+        emit=None,
+        cancellation_token=CancellationToken(),
+    )
+    backend = FakeDropboxBackend(
+        [
+            make_file(f"/Src/{name}.txt", dropbox_id=f"id:{name}", content_hash=f"hash-{name}")
+            for name in ("a", "b", "c")
+        ],
+        page_size=10,
+    )
+    auth_config = AuthConfig(method="access_token", access_token="token")
+    adapter = FakeDropboxAdapter(auth_config, make_logger("copy.parallel"), backend)
+    ArchiveCopyService(repository, make_logger("copy.parallel")).run(
+        adapter=adapter,
+        run_context=run_context,
+        job_config=JobConfig(
+            source_roots=["/"],
+            output_dir=tmp_path,
+            mode="copy_run",
+            worker_count=3,
+        ),  # type: ignore[arg-type]
+        planner=ArchivePlanner("/Archive_PreMay2020"),
+        emit=None,
+        cancellation_token=CancellationToken(),
+        dry_run=False,
+        adapter_factory=fake_adapter_factory(backend),
+        auth_config=auth_config,
+    )
+
+    assert {row.status for row in repository.manifest_rows(run_context.run_id)} == {"copied"}
+    assert len(backend.copy_calls) == 3
+
+
 def test_verification_report(tmp_path: Path) -> None:
     run_context, repository = make_run_context(tmp_path, "copy_run")
     seed_inventory(

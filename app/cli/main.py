@@ -84,25 +84,25 @@ def add_job_args(parser: argparse.ArgumentParser) -> None:
         dest="excluded_roots",
         help="Dropbox folder path to exclude from inventory and copy planning. Can be supplied more than once.",
     )
-    parser.add_argument("--cutoff-date", default="2020-05-01", help="Cutoff date in YYYY-MM-DD format.")
+    parser.add_argument("--cutoff-date", default=None, help="Cutoff date in YYYY-MM-DD format.")
     parser.add_argument(
         "--date-filter-field",
         choices=("server_modified", "client_modified", "oldest_modified"),
         default=None,
         help="Timestamp field used for cutoff filtering. Default: server_modified.",
     )
-    parser.add_argument("--archive-root", default="/Archive_PreMay2020", help="Archive root folder in Dropbox.")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs"), help="Base output directory.")
+    parser.add_argument("--archive-root", default=None, help="Archive root folder in Dropbox.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Base output directory.")
     parser.add_argument("--job-state", type=Path, help="Reserved for resuming an existing run.")
-    parser.add_argument("--batch-size", type=int, default=500, help="Dropbox page and work batch size.")
-    parser.add_argument("--retry-count", type=int, default=5, help="Maximum retry attempts.")
-    parser.add_argument("--initial-backoff", type=float, default=1.0, help="Initial retry backoff in seconds.")
-    parser.add_argument("--backoff-multiplier", type=float, default=2.0, help="Retry backoff multiplier.")
-    parser.add_argument("--max-backoff", type=float, default=30.0, help="Maximum backoff in seconds.")
+    parser.add_argument("--batch-size", type=int, default=None, help="Dropbox page and work batch size.")
+    parser.add_argument("--retry-count", type=int, default=None, help="Maximum retry attempts.")
+    parser.add_argument("--initial-backoff", type=float, default=None, help="Initial retry backoff in seconds.")
+    parser.add_argument("--backoff-multiplier", type=float, default=None, help="Retry backoff multiplier.")
+    parser.add_argument("--max-backoff", type=float, default=None, help="Maximum backoff in seconds.")
     parser.add_argument(
         "--conflict-policy",
         choices=("safe_skip", "abort_run"),
-        default="safe_skip",
+        default=None,
         help="Conflict policy when the destination already exists.",
     )
     parser.add_argument("--exclude-folders-from-inventory", action="store_true", help="Do not include folders in inventory CSV.")
@@ -111,12 +111,12 @@ def add_job_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Do not exclude the archive folder subtree from source traversal in personal mode.",
     )
-    parser.add_argument("--worker-count", type=int, default=1, help="Requested worker count for copy phase.")
+    parser.add_argument("--worker-count", type=int, default=None, help="Requested worker count for copy phase.")
     parser.add_argument("--skip-verify", action="store_true", help="Skip the verification phase.")
     parser.add_argument(
         "--team-coverage-preset",
         choices=("all_team_content", "team_owned_only"),
-        default="all_team_content",
+        default=None,
         help="Coverage preset for team-admin mode.",
     )
     parser.add_argument(
@@ -236,11 +236,23 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
     job_section = config_data.get("job", {})
     source_roots = args.source_roots or job_section.get("source_roots") or ["/"]
     excluded_roots = args.excluded_roots or job_section.get("excluded_roots") or []
+    include_folders_in_inventory = bool(job_section.get("include_folders_in_inventory", True))
+    if getattr(args, "exclude_folders_from_inventory", False):
+        include_folders_in_inventory = False
+    exclude_archive_destination = bool(job_section.get("exclude_archive_destination", True))
+    if getattr(args, "include_archive_destination", False):
+        exclude_archive_destination = False
     retry = RetrySettings(
-        max_retries=args.retry_count if hasattr(args, "retry_count") else job_section.get("retry_count", 5),
-        initial_backoff_seconds=args.initial_backoff if hasattr(args, "initial_backoff") else job_section.get("initial_backoff", 1.0),
-        backoff_multiplier=args.backoff_multiplier if hasattr(args, "backoff_multiplier") else job_section.get("backoff_multiplier", 2.0),
-        max_backoff_seconds=args.max_backoff if hasattr(args, "max_backoff") else job_section.get("max_backoff", 30.0),
+        max_retries=args.retry_count if getattr(args, "retry_count", None) is not None else job_section.get("retry_count", 5),
+        initial_backoff_seconds=(
+            args.initial_backoff if getattr(args, "initial_backoff", None) is not None else job_section.get("initial_backoff", 1.0)
+        ),
+        backoff_multiplier=(
+            args.backoff_multiplier
+            if getattr(args, "backoff_multiplier", None) is not None
+            else job_section.get("backoff_multiplier", 2.0)
+        ),
+        max_backoff_seconds=args.max_backoff if getattr(args, "max_backoff", None) is not None else job_section.get("max_backoff", 30.0),
     )
     return JobConfig(
         source_roots=list(source_roots),
@@ -253,11 +265,11 @@ def resolve_job_config(args: argparse.Namespace, config_data: dict[str, Any], mo
         batch_size=getattr(args, "batch_size", None) or job_section.get("batch_size", 500),
         retry=retry,
         conflict_policy=getattr(args, "conflict_policy", None) or job_section.get("conflict_policy", "safe_skip"),
-        include_folders_in_inventory=not getattr(args, "exclude_folders_from_inventory", False),
-        exclude_archive_destination=not getattr(args, "include_archive_destination", False),
+        include_folders_in_inventory=include_folders_in_inventory,
+        exclude_archive_destination=exclude_archive_destination,
         worker_count=getattr(args, "worker_count", None) or job_section.get("worker_count", 1),
         verify_after_run=not getattr(args, "skip_verify", False),
-        team_coverage_preset=getattr(args, "team_coverage_preset", None) or job_section.get("team_coverage_preset", "all_team_content"),
+        team_coverage_preset=getattr(args, "team_coverage_preset", None) or job_section.get("team_coverage_preset", "team_owned_only"),
         team_archive_layout=getattr(args, "team_archive_layout", None) or job_section.get("team_archive_layout", "segmented"),
     )
 

@@ -30,8 +30,8 @@ DATE_FILTER_CHOICES: tuple[Choice, ...] = (
 )
 
 TEAM_COVERAGE_CHOICES: tuple[Choice, ...] = (
-    Choice("All team content", "all_team_content", "Team-owned folders plus active member home namespaces."),
     Choice("Team-owned only", "team_owned_only", "Only team-owned and shared team namespaces."),
+    Choice("All team content", "all_team_content", "Team-owned folders plus active member home namespaces."),
 )
 
 TEAM_ARCHIVE_LAYOUT_CHOICES: tuple[Choice, ...] = (
@@ -61,11 +61,11 @@ def date_filter_value_to_label(value: str) -> str:
 
 
 def team_coverage_label_to_value(label: str) -> TeamCoveragePreset:
-    return _label_to_value(label, TEAM_COVERAGE_CHOICES, "all_team_content")  # type: ignore[return-value]
+    return _label_to_value(label, TEAM_COVERAGE_CHOICES, "team_owned_only")  # type: ignore[return-value]
 
 
 def team_coverage_value_to_label(value: str) -> str:
-    return _value_to_label(value, TEAM_COVERAGE_CHOICES, "All team content")
+    return _value_to_label(value, TEAM_COVERAGE_CHOICES, "Team-owned only")
 
 
 def team_archive_layout_label_to_value(label: str) -> TeamArchiveLayout:

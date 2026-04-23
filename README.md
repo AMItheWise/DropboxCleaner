@@ -171,7 +171,7 @@ py -3.11 -m app.cli.main dry-run ^
 py -3.11 -m app.cli.main dry-run ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
@@ -183,7 +183,7 @@ py -3.11 -m app.cli.main dry-run ^
 py -3.11 -m app.cli.main copy ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --date-filter-field server_modified ^
   --archive-root /Archive_PreMay2020 ^
   --output-dir ./outputs
@@ -195,7 +195,7 @@ Team-admin archive layout defaults to `segmented`, which creates clear buckets s
 py -3.11 -m app.cli.main copy ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --team-archive-layout merged ^
   --archive-root /Archive_PreMay2020
 ```
@@ -224,7 +224,7 @@ If Dropbox's web UI shows old file dates but a run does not match those files, c
 py -3.11 -m app.cli.main dry-run ^
   --account-mode team_admin ^
   --use-saved-auth ^
-  --team-coverage-preset all_team_content ^
+  --team-coverage-preset team_owned_only ^
   --cutoff-date 2020-05-01 ^
   --date-filter-field oldest_modified ^
   --archive-root /Archive_PreMay2020
@@ -251,7 +251,7 @@ py -3.11 -m app.cli.main verify ^
 ## Team-Admin Notes
 
 - `team_admin` mode is designed for whole-team inventory from one admin-authorized app.
-- The default coverage preset is `all_team_content`.
+- The default coverage preset is `team_owned_only`. Choose `all_team_content` only when you also want active member home namespaces included.
 - Team reports and manifests are namespace-aware and include:
   - `account_mode`
   - `namespace_id`
