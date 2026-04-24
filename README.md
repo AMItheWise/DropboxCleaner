@@ -138,6 +138,10 @@ Recommended flow:
 
 The app never asks for your Dropbox password and does not log tokens.
 
+Non-technical setup guide:
+
+- [docs/DROPBOX_APP_SETUP_GUIDE.md](docs/DROPBOX_APP_SETUP_GUIDE.md)
+
 ## Common Workflows
 
 ### Personal Inventory Only
