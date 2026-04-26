@@ -31,6 +31,7 @@ pip-wheel-metadata/
 
 # Local application data
 outputs/
+launcher_logs/
 *.db-shm
 *.db-wal
 *.log

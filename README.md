@@ -78,7 +78,34 @@ Recommended app scopes by mode:
   - `files.team_metadata.write`
   - `team_data.team_space`
 
-## Install
+## One-Line Start
+
+Use these commands from the extracted Dropbox Cleaner folder. The launcher scans your system, creates or reuses `.venv`, installs requirements when needed, starts the local web app, opens the browser, and prints the UI URL.
+
+Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_windows.ps1
+```
+
+macOS:
+
+```bash
+bash ./scripts/run_macos.sh
+```
+
+For double-click use, open:
+
+- Windows: `Run Dropbox Cleaner.cmd`
+- macOS: `Run Dropbox Cleaner.command`
+
+On first run the launcher may take a few minutes while it installs Python packages. Later runs reuse `.venv`, skip dependency installation when `requirements.txt` is unchanged, and open the browser faster. Logs are written to `launcher_logs/`.
+
+If macOS says the double-click command cannot be opened because permissions were stripped, use the `bash ./scripts/run_macos.sh` one-liner from Terminal.
+
+To stop Dropbox Cleaner, press `Ctrl+C` in the launcher window.
+
+## Manual Install
 
 ```powershell
 py -3.11 -m venv .venv
@@ -104,6 +131,8 @@ macOS/Linux users can run:
 ```bash
 bash ./scripts/start_web.sh
 ```
+
+The `start_web` scripts assume requirements are already installed. Most users should prefer the one-line launchers above.
 
 The browser UI walks non-technical users through:
 
@@ -295,6 +324,25 @@ py -3.11 -m app.cli.main verify ^
   - `/Archive_PreMay2020/shared_namespaces/<namespace-slug>/...`
 
 ## Troubleshooting
+
+### Launcher says Python is missing or too old
+
+Install Python 3.11 or newer, then run the launcher again.
+
+- Windows: https://www.python.org/downloads/windows/
+- macOS: https://www.python.org/downloads/macos/
+
+On Windows, enable "Add python.exe to PATH" if the installer offers it. On macOS, the launcher does not install Homebrew or change global system tools; it only explains what is missing.
+
+### Launcher cannot install requirements
+
+The first run needs internet access to install Python packages into `.venv`. Check your connection and run the same one-liner again. If requirements were already installed successfully, later runs can start without reinstalling.
+
+The full launcher log is saved under `launcher_logs/`.
+
+### How to stop the browser app
+
+Press `Ctrl+C` in the launcher window. Closing the browser tab does not stop the local server.
 
 ### Team copy run says `no_write_permission`
 
