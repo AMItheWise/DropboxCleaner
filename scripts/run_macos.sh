@@ -9,6 +9,19 @@ mkdir -p "$LOG_DIR"
 TIMESTAMP="$(date +"%Y%m%d-%H%M%S")"
 LOG_FILE="$LOG_DIR/dropbox-cleaner-launch-$TIMESTAMP.log"
 
+COLOR_RESET=""
+COLOR_RED=""
+COLOR_GREEN=""
+COLOR_YELLOW=""
+COLOR_CYAN=""
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  COLOR_RESET=$'\033[0m'
+  COLOR_RED=$'\033[31m'
+  COLOR_GREEN=$'\033[32m'
+  COLOR_YELLOW=$'\033[33m'
+  COLOR_CYAN=$'\033[36m'
+fi
+
 PORT=""
 NO_BROWSER=0
 SETUP_ONLY=0
@@ -42,9 +55,27 @@ done
 
 log() {
   local level="${2:-INFO}"
+  local color_name="${3:-}"
   local line
+  local color=""
   line="[$(date +"%Y-%m-%d %H:%M:%S")] [$level] $1"
-  printf '%s\n' "$line"
+  case "$color_name" in
+    green) color="$COLOR_GREEN" ;;
+    yellow) color="$COLOR_YELLOW" ;;
+    cyan) color="$COLOR_CYAN" ;;
+    red) color="$COLOR_RED" ;;
+  esac
+  if [[ -z "$color" ]]; then
+    case "$level" in
+      ERROR) color="$COLOR_RED" ;;
+      WARN) color="$COLOR_YELLOW" ;;
+    esac
+  fi
+  if [[ -n "$color" ]]; then
+    printf '%s%s%s\n' "$color" "$line" "$COLOR_RESET"
+  else
+    printf '%s\n' "$line"
+  fi
   printf '%s\n' "$line" >> "$LOG_FILE"
 }
 
@@ -123,7 +154,7 @@ import dropbox, fastapi, keyring, platformdirs, pydantic, yaml, uvicorn
 PY
 }
 
-log "Dropbox Cleaner launcher started."
+log "Dropbox Cleaner launcher started." "INFO" "cyan"
 log "Scanning system"
 log "Project folder: $REPO_ROOT"
 log "Log file: $LOG_FILE"
@@ -162,7 +193,7 @@ if [[ "$VENV_READY" -ne 1 ]]; then
     fi
     fail "Install Python 3.11 or newer from https://www.python.org/downloads/macos/ and run this launcher again."
   fi
-  log "Creating local virtual environment"
+  log "Creating local virtual environment" "INFO" "yellow"
   run_logged "Could not create the local virtual environment." "$BASE_PYTHON" -m venv "$VENV_DIR"
   VENV_VERSION="$(python_version "$VENV_PYTHON" || true)"
   if [[ -z "$VENV_VERSION" ]] || ! python_ok "$VENV_PYTHON" "$VENV_VERSION"; then
@@ -181,7 +212,7 @@ fi
 if [[ "$PREVIOUS_HASH" == "$CURRENT_HASH" ]] && imports_ok "$VENV_PYTHON"; then
   log "Requirements unchanged. Skipping dependency install."
 else
-  log "Installing Dropbox Cleaner requirements"
+  log "Installing Dropbox Cleaner requirements" "INFO" "yellow"
   run_logged "Could not upgrade pip tooling." "$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel
   run_logged "Could not install Dropbox Cleaner requirements. Check your internet connection and try again." "$VENV_PYTHON" -m pip install -r "$REQUIREMENTS_PATH"
   printf '%s\n' "$CURRENT_HASH" > "$MARKER_PATH"
@@ -195,12 +226,12 @@ fi
 log "Browser UI files are present."
 
 if [[ "$SETUP_ONLY" -eq 1 ]]; then
-  log "Setup check completed. SetupOnly was specified, so the app was not started."
+  log "Setup check completed. SetupOnly was specified, so the app was not started." "INFO" "green"
   exit 0
 fi
 
-log "Starting Dropbox Cleaner"
-log "To stop: press Ctrl+C in this window."
+log "Starting Dropbox Cleaner" "INFO" "green"
+log "To stop: press Ctrl+C in this window." "INFO" "yellow"
 
 LAUNCH_ARGS=(-u -m app.web.main)
 if [[ -n "$PORT" ]]; then
@@ -213,7 +244,7 @@ fi
 cd "$REPO_ROOT" || fail "Could not enter project folder."
 "$VENV_PYTHON" "${LAUNCH_ARGS[@]}" 2>&1 | while IFS= read -r line; do
   if [[ "$line" =~ Dropbox\ Cleaner\ web\ UI:\ (http://[^[:space:]]+) ]]; then
-    log "Browser UI URL: ${BASH_REMATCH[1]}"
+    log "Browser UI URL: ${BASH_REMATCH[1]}" "INFO" "green"
   else
     log "$line"
   fi
@@ -221,10 +252,10 @@ done
 status=${PIPESTATUS[0]}
 if [[ $status -ne 0 ]]; then
   if [[ $status -eq 130 || $status -eq 143 ]]; then
-    log "Dropbox Cleaner stopped."
+    log "Dropbox Cleaner stopped." "INFO" "green"
     exit 0
   fi
   fail "Dropbox Cleaner stopped unexpectedly with exit code $status."
 fi
 
-log "Dropbox Cleaner stopped."
+log "Dropbox Cleaner stopped." "INFO" "green"

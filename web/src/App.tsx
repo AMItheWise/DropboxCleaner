@@ -383,31 +383,20 @@ export default function App() {
         )}
 
         {step === 'account' && (
-          <div className="two-column">
-            <section className="panel primary-panel start-panel welcome-panel">
-              <h2>Choose account type</h2>
-              <div className="choice-list">
-                {optionsQuery.data?.accounts.map((choice) => (
-                  <button key={choice.value} className="choice-row account-choice" onClick={() => chooseAccount(choice.value as AccountMode)}>
-                    <span className="choice-icon">{choice.value === 'team_admin' ? <UsersRound size={20} /> : <UserRound size={20} />}</span>
-                    <span>
-                      <strong>{choice.label}</strong>
-                    </span>
-                    <ChevronRight size={18} />
-                  </button>
-                ))}
-              </div>
-            </section>
-            <RunHistory
-              history={historyQuery.data}
-              onOpen={(runId) => {
-                setSelectedResultRunId(runId);
-                setStep('results');
-              }}
-              onResume={() => resumeRun.mutate()}
-              busy={resumeRun.isPending}
-            />
-          </div>
+          <section className="panel primary-panel start-panel welcome-panel">
+            <h2>Choose account type</h2>
+            <div className="choice-list">
+              {optionsQuery.data?.accounts.map((choice) => (
+                <button key={choice.value} className="choice-row account-choice" onClick={() => chooseAccount(choice.value as AccountMode)}>
+                  <span className="choice-icon">{choice.value === 'team_admin' ? <UsersRound size={20} /> : <UserRound size={20} />}</span>
+                  <span>
+                    <strong>{choice.label}</strong>
+                  </span>
+                  <ChevronRight size={18} />
+                </button>
+              ))}
+            </div>
+          </section>
         )}
 
         {step === 'connect' && (
@@ -502,48 +491,61 @@ export default function App() {
                 onPick={openPicker}
               />
             </div>
-            <aside className="run-panel">
-              <h2>Run type</h2>
-              <p className="panel-copy">Choose preview before copy when working with a client Dropbox for the first time.</p>
-              <div className="choice-stack">
-                {optionsQuery.data?.run_modes.map((choice) => (
-                  <button
-                    key={choice.value}
-                    className={settings.mode === choice.value ? 'choice-row selected' : 'choice-row'}
-                    onClick={() => setSettings((current) => ({ ...current, mode: choice.value as RunMode }))}
-                  >
-                    <span>
-                      <strong>{choice.label}</strong>
-                      <small>{choice.description}</small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="run-summary">
-                <div>
-                  <CalendarClock size={16} />
-                  <span>Cutoff</span>
-                  <strong>{settings.cutoff_date}</strong>
+            <div className="settings-side">
+              <aside className="run-panel">
+                <h2>Run type</h2>
+                <p className="panel-copy">Choose preview before copy when working with a client Dropbox for the first time.</p>
+                <div className="choice-stack">
+                  {optionsQuery.data?.run_modes.map((choice) => (
+                    <button
+                      key={choice.value}
+                      className={settings.mode === choice.value ? 'choice-row selected' : 'choice-row'}
+                      onClick={() => setSettings((current) => ({ ...current, mode: choice.value as RunMode }))}
+                    >
+                      <span>
+                        <strong>{choice.label}</strong>
+                        <small>{choice.description}</small>
+                      </span>
+                    </button>
+                  ))}
                 </div>
-                <div>
-                  <Archive size={16} />
-                  <span>Archive</span>
-                  <strong>{normalizeDropboxPath(settings.archive_root)}</strong>
+                <div className="run-summary">
+                  <div>
+                    <CalendarClock size={16} />
+                    <span>Cutoff</span>
+                    <strong>{settings.cutoff_date}</strong>
+                  </div>
+                  <div>
+                    <Archive size={16} />
+                    <span>Archive</span>
+                    <strong>{normalizeDropboxPath(settings.archive_root)}</strong>
+                  </div>
+                  <div>
+                    <HardDrive size={16} />
+                    <span>Reports</span>
+                    <strong>{settings.output_dir}</strong>
+                  </div>
                 </div>
-                <div>
-                  <HardDrive size={16} />
-                  <span>Reports</span>
-                  <strong>{settings.output_dir}</strong>
-                </div>
-              </div>
-              {validationMessage && <p className="form-error">{validationMessage}</p>}
-              <button className="primary-button wide" onClick={submitRun} disabled={busy || Boolean(validationMessage)}>
-                {startRun.isPending ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Start run
-              </button>
-              <button className="ghost-button wide" onClick={() => resumeRun.mutate()} disabled={resumeRun.isPending}>
-                {resumeRun.isPending ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />} Resume latest run
-              </button>
-            </aside>
+                {validationMessage && <p className="form-error">{validationMessage}</p>}
+                <button className="primary-button wide" onClick={submitRun} disabled={busy || Boolean(validationMessage)}>
+                  {startRun.isPending ? <Loader2 className="spin" size={16} /> : <Play size={16} />} Start run
+                </button>
+                <button className="ghost-button wide" onClick={() => resumeRun.mutate()} disabled={resumeRun.isPending}>
+                  {resumeRun.isPending ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />} Resume latest run
+                </button>
+              </aside>
+              {account && (
+                <RunHistory
+                  history={historyQuery.data}
+                  onOpen={(runId) => {
+                    setSelectedResultRunId(runId);
+                    setStep('results');
+                  }}
+                  onResume={() => resumeRun.mutate()}
+                  busy={resumeRun.isPending}
+                />
+              )}
+            </div>
           </section>
         )}
 

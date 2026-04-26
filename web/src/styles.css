@@ -252,6 +252,12 @@ summary:focus-visible {
   grid-template-columns: minmax(0, 1fr) 380px;
 }
 
+.settings-side {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+
 .run-layout {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
 }

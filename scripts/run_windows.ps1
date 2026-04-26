@@ -15,10 +15,19 @@ $LogFile = Join-Path $LogDir "dropbox-cleaner-launch-$Timestamp.log"
 function Write-Log {
     param(
         [Parameter(Mandatory = $true)][string]$Message,
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+        [string]$Color = ""
     )
     $line = "[{0}] [{1}] {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Level, $Message
-    Write-Host $line
+    if ($Color) {
+        Write-Host $line -ForegroundColor $Color
+    } elseif ($Level -eq "ERROR") {
+        Write-Host $line -ForegroundColor Red
+    } elseif ($Level -eq "WARN") {
+        Write-Host $line -ForegroundColor Yellow
+    } else {
+        Write-Host $line
+    }
     Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
 }
 
@@ -125,7 +134,7 @@ function Get-RequirementsHash {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
-Write-Log "Dropbox Cleaner launcher started."
+Write-Log "Dropbox Cleaner launcher started." -Color Cyan
 Write-Log "Scanning system"
 Write-Log "Project folder: $RepoRoot"
 Write-Log "Log file: $LogFile"
@@ -154,7 +163,7 @@ if (-not $VenvReady) {
     if (-not $BasePython) {
         Stop-WithMessage "Python 3.11 or newer was not found. Install Python from https://www.python.org/downloads/windows/ and run this launcher again."
     }
-    Write-Log "Creating local virtual environment"
+    Write-Log "Creating local virtual environment" -Color Yellow
     $venvArgs = @()
     $venvArgs += $BasePython.Args
     $venvArgs += @("-m", "venv", $VenvDir)
@@ -178,7 +187,7 @@ $ImportsOk = Test-Imports -Python $VenvPython
 if ($PreviousHash -eq $CurrentHash -and $ImportsOk) {
     Write-Log "Requirements unchanged. Skipping dependency install."
 } else {
-    Write-Log "Installing Dropbox Cleaner requirements"
+    Write-Log "Installing Dropbox Cleaner requirements" -Color Yellow
     try {
         Invoke-Logged -FilePath $VenvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel") -FailureMessage "Could not upgrade pip tooling."
         Invoke-Logged -FilePath $VenvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath) -FailureMessage "Could not install Dropbox Cleaner requirements."
@@ -200,12 +209,12 @@ if (-not (Test-Path -LiteralPath $IndexPath) -or $JsAssets.Count -lt 1 -or $CssA
 Write-Log "Browser UI files are present."
 
 if ($SetupOnly) {
-    Write-Log "Setup check completed. SetupOnly was specified, so the app was not started."
+    Write-Log "Setup check completed. SetupOnly was specified, so the app was not started." -Color Green
     exit 0
 }
 
-Write-Log "Starting Dropbox Cleaner"
-Write-Log "To stop: press Ctrl+C in this window."
+Write-Log "Starting Dropbox Cleaner" -Color Green
+Write-Log "To stop: press Ctrl+C in this window." -Color Yellow
 $LaunchArgs = @("-u", "-m", "app.web.main")
 if ($Port -gt 0) {
     $LaunchArgs += @("--port", "$Port")
@@ -222,7 +231,7 @@ try {
         & $VenvPython @LaunchArgs 2>&1 | ForEach-Object {
             $line = $_.ToString()
             if ($line -match "Dropbox Cleaner web UI:\s+(http://\S+)") {
-                Write-Log ("Browser UI URL: {0}" -f $Matches[1])
+                Write-Log ("Browser UI URL: {0}" -f $Matches[1]) -Color Green
             } else {
                 Write-Log $line
             }
@@ -233,7 +242,7 @@ try {
     }
     if ($exitCode -ne 0) {
         if ($exitCode -eq 130 -or $exitCode -eq -1073741510) {
-            Write-Log "Dropbox Cleaner stopped."
+            Write-Log "Dropbox Cleaner stopped." -Color Green
             exit 0
         }
         Stop-WithMessage "Dropbox Cleaner stopped unexpectedly with exit code $exitCode."
@@ -242,4 +251,4 @@ try {
     Pop-Location
 }
 
-Write-Log "Dropbox Cleaner stopped."
+Write-Log "Dropbox Cleaner stopped." -Color Green
