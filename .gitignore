@@ -47,4 +47,8 @@ Thumbs.db
 
 # Node / slides workspace
 docs/slides/node_modules/
+web/node_modules/
+*.tsbuildinfo
+web/vite.config.d.ts
+web/vite.config.js
 ~$*.pptx

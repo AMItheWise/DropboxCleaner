@@ -1,6 +1,26 @@
 # Packaging Dropbox Cleaner
 
-Dropbox Cleaner can be packaged as a double-click PySide6 desktop app with PyInstaller.
+Dropbox Cleaner's supported v1 browser migration is launched as a local web server that opens the user's browser.
+
+Recommended launch commands:
+
+Windows:
+
+```powershell
+.\scripts\start_web.ps1
+```
+
+macOS/Linux:
+
+```bash
+bash ./scripts/start_web.sh
+```
+
+The server binds to `127.0.0.1` by default and serves the built React bundle from `app/web/static`.
+
+## Legacy PySide6 Builds
+
+The older PySide6 desktop app can still be packaged with PyInstaller for transition testing, but it is no longer the preferred macOS distribution path. Public macOS distribution of a native `.app` still requires Developer ID signing and notarization.
 
 ## Windows
 

@@ -1,6 +1,6 @@
 # Dropbox Cleaner
 
-Local-first desktop utility for inventorying Dropbox content, identifying files older than a cutoff date, and staging archive copies into a dedicated Dropbox archive folder without touching the originals.
+Local-first browser utility for inventorying Dropbox content, identifying files older than a cutoff date, and staging archive copies into a dedicated Dropbox archive folder without touching the originals.
 
 Dropbox Cleaner now supports both:
 
@@ -11,7 +11,7 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 ## Highlights
 
-- Consumer-friendly guided desktop UI plus CLI
+- Consumer-friendly local browser UI plus CLI
 - Shared backend for GUI and CLI
 - Personal mode and team-admin mode
 - Full metadata traversal with pagination
@@ -54,7 +54,8 @@ It inventories first, plans first, writes manifests and logs, and only performs 
 
 - Python 3.11+
 - A Dropbox API app
-- PySide6 is installed from `requirements.txt` for the desktop UI
+- FastAPI/Uvicorn for the local browser backend
+- React/Vite for the browser UI source in `web/`
 
 Recommended app scopes by mode:
 
@@ -86,20 +87,43 @@ py -3.11 -m pip install -r requirements.txt
 py -3.11 -m pip install -r requirements-dev.txt
 ```
 
-## Run The GUI
+## Run The Browser UI
 
 ```powershell
 py -3.11 -m app
 ```
 
-The GUI walks non-technical users through:
+The server binds to `127.0.0.1` and opens the browser automatically. Windows users can also run:
+
+```powershell
+.\scripts\start_web.ps1
+```
+
+macOS/Linux users can run:
+
+```bash
+bash ./scripts/start_web.sh
+```
+
+The browser UI walks non-technical users through:
 
 - choosing `Personal Dropbox` or `Team Dropbox`
 - connecting with OAuth
 - choosing a cutoff date with a calendar
 - browsing Dropbox folders for archive/source paths
 - previewing or copying archive files
-- reviewing visual results, issues, and output files
+- reviewing visual results, issues, output files, and local run history
+
+## Develop The Browser UI
+
+```powershell
+cd web
+npm install
+npm test
+npm run build
+```
+
+`npm run build` writes the static frontend bundle to `app/web/static`, where the FastAPI server serves it.
 
 ## Run The CLI
 
@@ -107,10 +131,9 @@ The GUI walks non-technical users through:
 py -3.11 -m app.cli.main --help
 ```
 
-## Build Double-Click Apps
+## Legacy Double-Click Apps
 
-Packaging instructions are in [docs/PACKAGING.md](docs/PACKAGING.md).
-GitHub Actions also builds unsigned zipped Windows and macOS artifacts for pull requests, pushes to `main`/`master`, and manual workflow runs.
+Packaging instructions are in [docs/PACKAGING.md](docs/PACKAGING.md). The PySide6 desktop UI remains in the repository for transition purposes, but the supported v1 migration path is the local browser UI. Install the `gui` extra only if you need the old desktop entrypoint.
 
 Windows:
 
@@ -301,6 +324,7 @@ Every run creates a timestamped output folder with:
 ```powershell
 py -3.11 -m pytest -q
 py -3.11 -m compileall app tests
+cd web && npm test && npm run build
 py -3.11 -m build
 ```
 
