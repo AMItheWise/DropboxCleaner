@@ -1,18 +1,8 @@
 # Dropbox Cleaner Setup Guide
 
-This guide is for a non-technical user. It explains how to:
+This guide explains how to create a Dropbox app, connect it to Dropbox Cleaner, and run a safe first preview in the local browser UI.
 
-1. create a Dropbox app
-2. enable the correct Dropbox permissions
-3. connect that app to Dropbox Cleaner
-4. run a safe first test
-
-This guide covers both:
-
-- `Personal Dropbox`
-- `Team Dropbox` (admin only)
-
-Nothing in this guide deletes or moves your original files.
+Dropbox Cleaner does not delete or move your original files. Preview runs make no Dropbox changes. Copy runs create archive copies and keep originals in place.
 
 ## Before You Start
 
@@ -21,22 +11,23 @@ You will need:
 - a Dropbox account
 - Dropbox Cleaner installed on your computer
 - internet access
-- for `Team Dropbox`: a Dropbox team admin account
+- for Team Dropbox: a Dropbox team admin account
 
 Important:
 
-- Dropbox Cleaner does **not** ask for your Dropbox password.
+- Dropbox Cleaner does not ask for your Dropbox password.
 - Dropbox authorization happens in your web browser.
-- If you change app permissions later, you must reconnect the app in Dropbox Cleaner.
+- Dropbox Cleaner opens a local browser page on this computer.
+- If you change Dropbox app permissions later, reconnect the app in Dropbox Cleaner.
 
-## Which Option Should You Choose?
+## Choose Account Type
 
-Choose **Personal Dropbox** if:
+Choose Personal Dropbox if:
 
-- you are archiving files in your own personal Dropbox
+- you are archiving files in your own Dropbox
 - you do not need to scan a company team account
 
-Choose **Team Dropbox** if:
+Choose Team Dropbox if:
 
 - you want one admin-approved app to inventory and archive team content
 - you are a Dropbox team admin
@@ -45,50 +36,39 @@ Choose **Team Dropbox** if:
 
 1. Open this page in your browser:
    - https://www.dropbox.com/developers
-2. Click **App Console**.
+2. Click App Console.
 3. Sign in with Dropbox if Dropbox asks you to.
-4. Click **Create app**.
-
-> [SCREENSHOT PLACEHOLDER 1]
-> Replace with: Dropbox Developers page showing the **App Console** button.
+4. Click Create app.
 
 ![Dropbox Developers top navigation with App Console](guide-images/dropbox-developers-nav.png)
-
-> [SCREENSHOT PLACEHOLDER 2]
-> Replace with: App Console page showing the **Create app** button.
 
 ![Dropbox Developers page with Create apps button](guide-images/dropbox-developers-hero-create-apps.png)
 
 ## Part 2: Create the App
 
-Dropbox's app-creation screen can change over time. The wording may be slightly different from what you see below. If it is different, choose the option that is closest to the description in this guide.
+Dropbox's app-creation screen can change over time. If the wording is different, choose the option closest to the description below.
 
-### If You Are Setting Up Personal Dropbox
+### Personal Dropbox App
 
-1. Choose **Scoped access** if Dropbox asks for the app type.
-2. Choose **Full Dropbox** access.
-   - Do **not** choose `App folder`.
-   - Dropbox Cleaner needs to inventory your selected Dropbox folders, so it needs broader file access.
+1. Choose Scoped access if Dropbox asks for the app type.
+2. Choose Full Dropbox access.
+   - Do not choose App folder.
+   - Dropbox Cleaner needs to inventory your selected Dropbox folders.
 3. Give the app a name.
-   - Example: `Dropbox Cleaner Personal`
-4. Click **Create app**.
+   - Example: Dropbox Cleaner Personal
+4. Click Create app.
 
-### If You Are Setting Up Team Dropbox
+### Team Dropbox App
 
-1. Choose the Dropbox app type for **team/business access** if Dropbox shows separate personal vs team options.
-2. Choose **Scoped access** if Dropbox asks.
-3. Choose the option that gives access to the **full team Dropbox / full Dropbox / team file access**.
-   - Do **not** choose `App folder`.
+1. Choose the Dropbox app type for team or business access if Dropbox shows separate personal and team options.
+2. Choose Scoped access if Dropbox asks.
+3. Choose the option that gives access to the full team Dropbox, full Dropbox, or team file access.
+   - Do not choose App folder.
 4. Give the app a name.
-   - Example: `Dropbox Cleaner Team Admin`
-5. Click **Create app**.
+   - Example: Dropbox Cleaner Team Admin
+5. Click Create app.
 
-Tip:
-
-- If Dropbox shows both a personal app option and a team-linked app option, choose the **team-linked** option for `Team Dropbox`.
-
-> [SCREENSHOT PLACEHOLDER 3]
-> Replace with: Dropbox app creation wizard showing the access-type choices.
+Tip: If Dropbox shows both a personal app option and a team-linked app option, choose the team-linked option for Team Dropbox.
 
 ![Dropbox App Console page with Create app button](guide-images/dropbox-app-console-my-apps.png)
 
@@ -98,23 +78,20 @@ Tip:
 
 After the app is created, Dropbox opens the app settings page.
 
-1. Stay on the **Settings** tab.
-2. Find the **App key**.
+1. Stay on the Settings tab.
+2. Find the App key.
 3. Copy it.
-4. Paste it into a temporary note for later, or leave this page open.
+4. Keep this page open or paste the app key into a temporary note.
 
-You usually do **not** need the App secret for Dropbox Cleaner's normal setup.
-
-> [SCREENSHOT PLACEHOLDER 4]
-> Replace with: App settings page showing where the **App key** appears.
+You usually do not need the App secret for Dropbox Cleaner's normal setup.
 
 ![Dropbox app settings page example](guide-images/dropbox-app-console-settings.png)
 
-## Part 4: Turn On the Correct Permissions
+## Part 4: Enable Permissions
 
-1. In the Dropbox App Console, open the **Permissions** tab.
+1. In the Dropbox App Console, open the Permissions tab.
 2. Turn on the permissions listed below for your mode.
-3. If Dropbox shows a **Submit**, **Save**, or similar button, click it.
+3. If Dropbox shows a Submit, Save, or similar button, click it.
 
 ### Personal Dropbox Permissions
 
@@ -142,102 +119,114 @@ Turn on these permissions:
 - `files.team_metadata.write`
 - `team_data.team_space`
 
-Important:
-
-- If you add or change permissions later, Dropbox Cleaner must be reconnected so Dropbox can grant the new scopes.
-
-> [SCREENSHOT PLACEHOLDER 5]
-> Replace with: Permissions tab showing the required checkboxes.
+Important: If you add or change permissions later, Dropbox Cleaner must be reconnected so Dropbox can grant the new scopes.
 
 ![Dropbox app permissions page example](guide-images/dropbox-app-console-permissions.png)
 
-## Part 5: If You Use Team Dropbox, Make Sure Your Team Allows the App
+## Part 5: Team Dropbox Admin Check
 
-Some Dropbox teams block custom apps by default. If you use `Team Dropbox`, check this before you connect:
+Some Dropbox teams block custom apps by default. If you use Team Dropbox, check this before connecting:
 
 1. Sign in to Dropbox as a team admin.
-2. Open the **Admin console**.
-3. Go to **Settings**.
-4. Open the **Integrations** tab.
+2. Open the Admin console.
+3. Go to Settings.
+4. Open the Integrations or App permissions area.
 5. Check whether custom or registered integrations are blocked.
 6. If needed, allow your new app.
 
-If Dropbox asks for an app key or app ID:
+If Dropbox asks for an app key or app ID, use the app key from the Dropbox App Console.
 
-- the app key is on your app's page in the Dropbox App Console
+## Part 6: Open Dropbox Cleaner
 
-> [SCREENSHOT PLACEHOLDER 6]
-> Replace with: Dropbox Admin Console -> Settings -> Integrations page.
+1. Start Dropbox Cleaner from the provided shortcut or command.
+2. Your browser opens the local Dropbox Cleaner page.
+3. On the welcome screen, choose Personal Dropbox or Team Dropbox.
 
-## Part 6: Connect the App in Dropbox Cleaner
+The app runs locally on your computer. The browser page is only for controlling the local Dropbox Cleaner process.
 
-1. Open **Dropbox Cleaner**.
-2. On the first screen, choose:
-   - **Personal Dropbox**, or
-   - **Team Dropbox**
-3. On the connection screen, paste the **App key**.
-4. Click **Connect Dropbox**.
-5. Your browser opens to Dropbox.
-6. Sign in if Dropbox asks you to.
-7. Review the app name and permissions.
-8. Click **Allow**.
-9. Dropbox shows an authorization code.
-10. Copy that code.
-11. Go back to Dropbox Cleaner.
-12. Paste the code into **Authorization code**.
-13. Click **Finish connection**.
-14. When Dropbox Cleaner shows that the connection is verified, click **Continue**.
+![Dropbox Cleaner welcome screen](guide-images/dropbox-cleaner-web-welcome.png)
 
-This is the Dropbox Cleaner start screen you will see before you choose `Personal Dropbox` or `Team Dropbox`:
+Local runs are collapsed by default. Open Local runs only when you want to resume or review a previous run.
 
-![Dropbox Cleaner start screen](guide-images/dropbox-cleaner-app-window.png)
+## Part 7: Connect Dropbox
 
-> [SCREENSHOT PLACEHOLDER 7]
-> Replace with: Dropbox Cleaner connection screen with the App key field and Connect button.
+If Dropbox Cleaner finds a saved connection, the connection screen is simple:
 
-> [SCREENSHOT PLACEHOLDER 8]
-> Replace with: Dropbox authorization page in the browser showing the Allow button.
+- Use saved connection continues with the local saved credentials.
+- Connect different account opens the app key and authorization fields.
+- Forget removes the saved connection from this computer.
 
-## Part 7: Do a Safe First Test
+![Dropbox Cleaner saved connection screen](guide-images/dropbox-cleaner-web-saved-connection.png)
 
-Your first run should be a safe preview.
+For a new connection:
 
-1. In Dropbox Cleaner, choose a cutoff date.
-2. Choose an archive folder.
-3. For your first test, select **Preview archive**.
-4. Click **Start**.
-5. Wait for the scan to finish.
-6. Review the results.
+1. Paste the App key from the Dropbox App Console.
+2. Click Open Dropbox authorization.
+3. Your browser opens Dropbox.
+4. Sign in if Dropbox asks.
+5. Review the app name and permissions.
+6. Click Allow.
+7. Copy the authorization code Dropbox shows.
+8. Return to Dropbox Cleaner.
+9. Paste the code into Authorization code.
+10. Click Finish connection.
+
+![Dropbox Cleaner new connection screen](guide-images/dropbox-cleaner-web-new-connection.png)
+
+## Part 8: Run a Safe Preview
+
+Your first run should be Preview archive.
+
+1. Choose a cutoff date.
+2. Choose the archive folder.
+3. Leave Folders to include empty to scan the whole connected Dropbox scope, or choose a small test folder.
+4. Select Preview archive.
+5. Click Start run.
+6. Wait for the scan to finish.
 
 Preview mode is safe because:
 
-- it does **not** make Dropbox changes
+- it does not make Dropbox changes
 - it shows what would be copied
-- it writes reports you can review first
+- it writes local reports you can review first
 
-Recommended first test:
+![Dropbox Cleaner settings screen](guide-images/dropbox-cleaner-web-settings.png)
 
-- use a small test folder or an older date range you can verify easily
+Recommended first test: use a small test folder or an older date range you can verify easily.
 
-## Part 8: What to Do After Preview Works
+## Part 9: Review Results
 
-Once the preview looks correct:
+When a run finishes, Dropbox Cleaner shows:
 
-1. go back to settings
-2. switch from **Preview archive** to **Copy to archive**
-3. run again
+- a run summary
+- matched, copied, skipped, and failed counts
+- top folders to review
+- a short Reports list
+
+The Reports section shows the main files most users need. Technical files and the raw output folder are collapsed to keep the page simple.
+
+![Dropbox Cleaner results screen](guide-images/dropbox-cleaner-web-results.png)
+
+## Part 10: Copy to Archive
+
+After preview looks correct:
+
+1. Go back to Settings.
+2. Switch from Preview archive to Copy to archive.
+3. Click Start run.
+4. Confirm the copy run when Dropbox Cleaner asks.
 
 Dropbox Cleaner will:
 
 - copy matching files into the archive
 - preserve folder structure
-- keep the originals in place
+- keep originals in place
 
-It will **not**:
+Dropbox Cleaner will not:
 
 - delete originals
 - move originals
-- overwrite existing archive files silently
+- silently overwrite existing archive files
 
 ## Common Problems and Fixes
 
@@ -249,11 +238,11 @@ Cause:
 
 Fix:
 
-1. go back to the Dropbox App Console
-2. open **Permissions**
-3. enable the missing permissions
-4. save changes if Dropbox shows a save button
-5. reconnect the app in Dropbox Cleaner
+1. Go back to the Dropbox App Console.
+2. Open Permissions.
+3. Enable the missing permissions.
+4. Save changes if Dropbox shows a save button.
+5. Reconnect the app in Dropbox Cleaner.
 
 ### Problem: Team app cannot connect
 
@@ -264,10 +253,10 @@ Cause:
 
 Fix:
 
-1. sign in as a team admin
-2. check **Admin console -> Settings -> Integrations**
-3. allow the app if needed
-4. reconnect
+1. Sign in as a team admin.
+2. Check Admin console -> Settings -> Integrations or App permissions.
+3. Allow the app if needed.
+4. Reconnect.
 
 ### Problem: Copy run says `no_write_permission`
 
@@ -277,46 +266,29 @@ Cause:
 
 Fix:
 
-1. choose a different archive folder
-2. or create the archive folder manually in Dropbox first
-3. rerun or resume the job
+1. Choose a different archive folder.
+2. Or create the archive folder manually in Dropbox first.
+3. Rerun or resume the job.
 
 ### Problem: Files look old in Dropbox but do not match
 
 Cause:
 
-- Dropbox Cleaner may be comparing `Dropbox modified date` instead of the file's original date
+- Dropbox Cleaner may be comparing Dropbox modified date instead of the file's original date
 
 Fix:
 
-1. in Dropbox Cleaner, change the date field to:
-   - **Original file date**, or
-   - **Oldest available date**
-2. run the preview again
+1. In Dropbox Cleaner, change the date filter to Original file date or Oldest available date.
+2. Run the preview again.
 
-## Best Practice Recommendations
+## Best Practices
 
-- Use **Personal Dropbox** for a personal account.
-- Use **Team Dropbox** only with a real team admin account.
-- Start with **Preview archive** before any copy run.
+- Use Personal Dropbox for a personal account.
+- Use Team Dropbox only with a real team admin account.
+- Start with Preview archive before any copy run.
 - Keep the archive folder somewhere the app can write to.
 - If you change Dropbox app permissions, reconnect the app afterward.
 - Keep your app key private.
-
-## Suggested Screenshot List
-
-If you want to replace the placeholders, these are the screenshots to capture:
-
-1. Dropbox Developers page with **App Console**
-2. App Console page with **Create app**
-3. App creation wizard with access choices
-4. App **Settings** page showing the **App key**
-5. App **Permissions** tab with required scopes checked
-6. Dropbox **Admin console -> Settings -> Integrations** for team setups
-7. Dropbox Cleaner connection screen
-8. Dropbox browser authorization page
-9. Dropbox Cleaner preview results page
-10. Dropbox Cleaner copy results page
 
 ## Official Dropbox References
 
@@ -333,7 +305,7 @@ These official Dropbox pages were used to build this guide:
 
 Key Dropbox guidance reflected here:
 
-- Dropbox apps are created in the **App Console**
-- permissions are enabled on the **Permissions** tab
-- desktop apps that need background access should use **OAuth code flow with PKCE and refresh tokens**
-- team admins can allow or block apps in the **Admin console -> Settings -> Integrations**
+- Dropbox apps are created in the App Console.
+- permissions are enabled on the Permissions tab.
+- desktop/local apps that need background access should use OAuth code flow with PKCE and refresh tokens.
+- team admins can allow or block apps from the Dropbox admin app permissions area.

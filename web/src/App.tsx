@@ -2,16 +2,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  Archive,
+  CalendarClock,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  FileCheck2,
   FolderOpen,
+  HardDrive,
   Loader2,
+  LockKeyhole,
   LogOut,
   Play,
   RotateCcw,
+  Server,
   ShieldCheck,
   Square,
+  UserRound,
+  UsersRound,
   X,
 } from 'lucide-react';
 import { ApiError, apiDelete, apiGet, apiPost, fileUrl } from './api';
@@ -82,6 +90,8 @@ export default function App() {
   const [pickerLocation, setPickerLocation] = useState<BrowserLocation | null>(null);
   const [pickerData, setPickerData] = useState<FolderListResponse | null>(null);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [copyConfirmOpen, setCopyConfirmOpen] = useState(false);
+  const [authFormOpen, setAuthFormOpen] = useState(false);
 
   const optionsQuery = useQuery({
     queryKey: ['options'],
@@ -197,6 +207,7 @@ export default function App() {
     mutationFn: () => apiDelete<{ status: string }>('/api/auth'),
     onSuccess: () => {
       setAccount(null);
+      setAuthFormOpen(true);
       queryClient.invalidateQueries({ queryKey: ['auth-status'] });
     },
   });
@@ -211,6 +222,7 @@ export default function App() {
         admin_member_id: adminMemberId || null,
       }),
     onSuccess: (payload) => {
+      setCopyConfirmOpen(false);
       setActiveRunId(payload.run_id);
       setSelectedResultRunId(null);
       setProgress(null);
@@ -248,10 +260,13 @@ export default function App() {
   const activeResult = runStatusQuery.data?.result || null;
   const validationMessage = useMemo(() => validateRunSettings(settings), [settings]);
   const busy = startAuth.isPending || finishAuth.isPending || testAuth.isPending || startRun.isPending || resumeRun.isPending;
+  const hasSavedConnection = Boolean(authStatusQuery.data?.saved_credentials_available);
+  const showAuthFields = !hasSavedConnection || authFormOpen;
 
   function chooseAccount(next: AccountMode) {
     setAccountMode(next);
     setSettings((current) => ({ ...current, account_mode: next }));
+    setAuthFormOpen(false);
     setStep('connect');
   }
 
@@ -304,9 +319,14 @@ export default function App() {
       return;
     }
     if (settings.mode === 'copy_run') {
-      const confirmed = window.confirm('This creates archive copies in Dropbox. Originals are not deleted or moved. Continue?');
-      if (!confirmed) return;
+      setCopyConfirmOpen(true);
+      return;
     }
+    startRun.mutate();
+  }
+
+  function startConfirmedCopyRun() {
+    setCopyConfirmOpen(false);
     startRun.mutate();
   }
 
@@ -317,7 +337,7 @@ export default function App() {
           <span className="brand-mark">DC</span>
           <div>
             <strong>Dropbox Cleaner</strong>
-            <span>Local browser UI</span>
+            <span>Local archive workspace</span>
           </div>
         </div>
         <nav className="steps" aria-label="Workflow">
@@ -329,8 +349,18 @@ export default function App() {
           ))}
         </nav>
         <section className="rail-status">
-          <ShieldCheck size={18} />
-          <p>Credentials stay in the local keyring. Reports are written to the selected local folder.</p>
+          <div className="rail-status-line">
+            <LockKeyhole size={16} />
+            <span>Local credentials</span>
+          </div>
+          <div className="rail-status-line">
+            <Archive size={16} />
+            <span>Copy-first archive</span>
+          </div>
+          <div className="rail-status-line">
+            <FileCheck2 size={16} />
+            <span>CSV reports and resume state</span>
+          </div>
         </section>
       </aside>
 
@@ -339,10 +369,6 @@ export default function App() {
           <div>
             <p className="eyebrow">{stepLabel(step)}</p>
             <h1>{headingForStep(step)}</h1>
-          </div>
-          <div className="topbar-actions">
-            {account && <StatusPill tone="success" text={account.display_name} />}
-            {authStatusQuery.data?.saved_credentials_available && !account && <StatusPill tone="neutral" text="Saved connection" />}
           </div>
         </header>
 
@@ -358,14 +384,14 @@ export default function App() {
 
         {step === 'account' && (
           <div className="two-column">
-            <section className="panel primary-panel">
-              <h2>Choose Dropbox access</h2>
+            <section className="panel primary-panel start-panel welcome-panel">
+              <h2>Choose account type</h2>
               <div className="choice-list">
                 {optionsQuery.data?.accounts.map((choice) => (
-                  <button key={choice.value} className="choice-row" onClick={() => chooseAccount(choice.value as AccountMode)}>
+                  <button key={choice.value} className="choice-row account-choice" onClick={() => chooseAccount(choice.value as AccountMode)}>
+                    <span className="choice-icon">{choice.value === 'team_admin' ? <UsersRound size={20} /> : <UserRound size={20} />}</span>
                     <span>
                       <strong>{choice.label}</strong>
-                      <small>{choice.description}</small>
                     </span>
                     <ChevronRight size={18} />
                   </button>
@@ -389,53 +415,79 @@ export default function App() {
             <div className="section-heading">
               <div>
                 <h2>Connect Dropbox</h2>
-                <p>Approve access in Dropbox, then return here to finish the connection.</p>
+                <p>{hasSavedConnection && !showAuthFields ? 'Use the saved connection or connect a different Dropbox account.' : 'Approve access in Dropbox, then return here to finish the connection.'}</p>
               </div>
               <button className="ghost-button" onClick={() => setStep('account')}>
                 <ChevronLeft size={16} /> Back
               </button>
             </div>
-            {authStatusQuery.data?.saved_credentials_available && (
-              <div className="inline-row saved-row">
+            {hasSavedConnection && !showAuthFields && (
+              <div className="saved-connection-card">
                 <div>
                   <strong>Saved Dropbox connection found</strong>
-                  <span>Test it before continuing, or forget it and connect again.</span>
+                  <span>Continue with the connection stored on this computer.</span>
                 </div>
-                <button className="primary-button" onClick={() => testAuth.mutate()} disabled={busy}>
-                  {testAuth.isPending ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} Use saved connection
-                </button>
-                <button className="danger-button" onClick={() => clearAuth.mutate()}>
-                  <LogOut size={16} /> Forget
+                <div className="saved-actions">
+                  <button className="primary-button" onClick={() => testAuth.mutate()} disabled={busy}>
+                    {testAuth.isPending ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} Use saved connection
+                  </button>
+                  <button className="ghost-button" onClick={() => setAuthFormOpen(true)} disabled={busy}>
+                    Connect different account
+                  </button>
+                  <button className="danger-button" onClick={() => clearAuth.mutate()} disabled={clearAuth.isPending}>
+                    <LogOut size={16} /> Forget
+                  </button>
+                </div>
+              </div>
+            )}
+            {showAuthFields && (
+              <div className="auth-form">
+                {hasSavedConnection && (
+                  <div className="notice subtle">
+                    <span>Connecting a different account will replace the saved Dropbox connection after authorization.</span>
+                  </div>
+                )}
+                <label className="field">
+                  <span>Dropbox app key</span>
+                  <input value={appKey} onChange={(event) => setAppKey(event.target.value)} disabled={authStatusQuery.data?.packaged_app_key_available} />
+                </label>
+                {accountMode === 'team_admin' && (
+                  <label className="field">
+                    <span>Admin member ID override</span>
+                    <input value={adminMemberId} onChange={(event) => setAdminMemberId(event.target.value)} placeholder="Optional" />
+                  </label>
+                )}
+                <div className="inline-actions">
+                  <button className="primary-button" onClick={() => startAuth.mutate()} disabled={busy}>
+                    {startAuth.isPending ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />} Open Dropbox authorization
+                  </button>
+                </div>
+                <label className="field">
+                  <span>Authorization code</span>
+                  <input value={authCode} onChange={(event) => setAuthCode(event.target.value)} placeholder="Paste the code from Dropbox" />
+                </label>
+                <div className="inline-actions">
+                  <button className="success-button" onClick={() => finishAuth.mutate()} disabled={busy || !authCode.trim()}>
+                    {finishAuth.isPending ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} Finish connection
+                  </button>
+                  {hasSavedConnection && (
+                    <button className="ghost-button" onClick={() => setAuthFormOpen(false)} disabled={busy}>
+                      Cancel
+                    </button>
+                  )}
+                  <button className="ghost-button" onClick={() => setStep('settings')} disabled={!account}>
+                    Continue <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+            {!showAuthFields && account && (
+              <div className="inline-actions">
+                <button className="ghost-button" onClick={() => setStep('settings')}>
+                  Continue <ChevronRight size={16} />
                 </button>
               </div>
             )}
-            <label className="field">
-              <span>Dropbox app key</span>
-              <input value={appKey} onChange={(event) => setAppKey(event.target.value)} disabled={authStatusQuery.data?.packaged_app_key_available} />
-            </label>
-            {accountMode === 'team_admin' && (
-              <label className="field">
-                <span>Admin member ID override</span>
-                <input value={adminMemberId} onChange={(event) => setAdminMemberId(event.target.value)} placeholder="Optional" />
-              </label>
-            )}
-            <div className="inline-actions">
-              <button className="primary-button" onClick={() => startAuth.mutate()} disabled={busy}>
-                {startAuth.isPending ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />} Open Dropbox authorization
-              </button>
-            </div>
-            <label className="field">
-              <span>Authorization code</span>
-              <input value={authCode} onChange={(event) => setAuthCode(event.target.value)} placeholder="Paste the code from Dropbox" />
-            </label>
-            <div className="inline-actions">
-              <button className="success-button" onClick={() => finishAuth.mutate()} disabled={busy || !authCode.trim()}>
-                {finishAuth.isPending ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} Finish connection
-              </button>
-              <button className="ghost-button" onClick={() => setStep('settings')} disabled={!account}>
-                Continue <ChevronRight size={16} />
-              </button>
-            </div>
           </section>
         )}
 
@@ -452,6 +504,7 @@ export default function App() {
             </div>
             <aside className="run-panel">
               <h2>Run type</h2>
+              <p className="panel-copy">Choose preview before copy when working with a client Dropbox for the first time.</p>
               <div className="choice-stack">
                 {optionsQuery.data?.run_modes.map((choice) => (
                   <button
@@ -465,6 +518,23 @@ export default function App() {
                     </span>
                   </button>
                 ))}
+              </div>
+              <div className="run-summary">
+                <div>
+                  <CalendarClock size={16} />
+                  <span>Cutoff</span>
+                  <strong>{settings.cutoff_date}</strong>
+                </div>
+                <div>
+                  <Archive size={16} />
+                  <span>Archive</span>
+                  <strong>{normalizeDropboxPath(settings.archive_root)}</strong>
+                </div>
+                <div>
+                  <HardDrive size={16} />
+                  <span>Reports</span>
+                  <strong>{settings.output_dir}</strong>
+                </div>
               </div>
               {validationMessage && <p className="form-error">{validationMessage}</p>}
               <button className="primary-button wide" onClick={submitRun} disabled={busy || Boolean(validationMessage)}>
@@ -492,10 +562,16 @@ export default function App() {
               <PhaseTimeline phase={progress?.phase} />
               <MetricStrip counters={progress?.counters || {}} />
             </div>
-            <div className="panel log-panel">
-              <h2>Details for support</h2>
+            <details className="panel log-panel">
+              <summary>
+                <span>
+                  <strong>Details for support</strong>
+                  <small>{logs.length ? `${logs.length} log lines captured` : 'Run messages will appear here'}</small>
+                </span>
+                <StatusPill tone="neutral" text="Technical log" />
+              </summary>
               <pre>{logs.length ? logs.join('\n') : 'Waiting for run output...'}</pre>
-            </div>
+            </details>
           </section>
         )}
 
@@ -523,6 +599,15 @@ export default function App() {
           onChoose={applyFolder}
         />
       )}
+
+      {copyConfirmOpen && (
+        <CopyRunDialog
+          settings={settings}
+          busy={startRun.isPending}
+          onCancel={() => setCopyConfirmOpen(false)}
+          onConfirm={startConfirmedCopyRun}
+        />
+      )}
     </main>
   );
 }
@@ -543,74 +628,111 @@ function SettingsPanel({
   const set = <K extends keyof RunSettings>(key: K, value: RunSettings[K]) => onChange({ ...settings, [key]: value });
   return (
     <section className="panel flow-panel">
-      <h2>Run settings</h2>
-      <div className="form-grid">
-        <label className="field">
-          <span>Cutoff date</span>
-          <input type="date" value={settings.cutoff_date} onChange={(event) => set('cutoff_date', event.target.value)} />
-        </label>
-        <label className="field">
-          <span>Date filter</span>
-          <select value={settings.date_filter_field} onChange={(event) => set('date_filter_field', event.target.value as DateFilterField)}>
-            {options?.date_filters.map((choice) => (
-              <option key={choice.value} value={choice.value}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="section-heading">
+        <div>
+          <h2>Run settings</h2>
+          <p>Set the cutoff, archive destination, and local report folder before starting a preview or copy run.</p>
+        </div>
       </div>
-      <PathEditor
-        title="Archive folder"
-        value={settings.archive_root}
-        onChange={(value) => set('archive_root', value)}
-        onPick={() => onPick('archive')}
-      />
-      <PathList
-        title="Folders to include"
-        emptyText="Whole Dropbox"
-        paths={settings.source_roots}
-        allowRoot
-        onAdd={(value) => set('source_roots', addUniquePath(settings.source_roots, value, true))}
-        onRemove={(path) => set('source_roots', settings.source_roots.filter((item) => item !== path))}
-        onPick={() => onPick('source')}
-      />
-      <PathList
-        title="Folders to skip"
-        emptyText="No skipped folders"
-        paths={settings.excluded_roots}
-        onAdd={(value) => set('excluded_roots', addUniquePath(settings.excluded_roots, value, false))}
-        onRemove={(path) => set('excluded_roots', settings.excluded_roots.filter((item) => item !== path))}
-        onPick={() => onPick('exclude')}
-      />
-      {accountMode === 'team_admin' && (
+      <div className="settings-section">
+        <div className="settings-section-title">
+          <CalendarClock size={17} />
+          <h3>Date rules</h3>
+        </div>
         <div className="form-grid">
           <label className="field">
-            <span>Team coverage</span>
-            <select value={settings.team_coverage_preset} onChange={(event) => set('team_coverage_preset', event.target.value as TeamCoveragePreset)}>
-              {options?.team_coverage.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
+            <span>Cutoff date</span>
+            <input type="date" value={settings.cutoff_date} onChange={(event) => set('cutoff_date', event.target.value)} />
+            <small className="field-help">Files older than this date are included in the match set.</small>
           </label>
           <label className="field">
-            <span>Archive layout</span>
-            <select value={settings.team_archive_layout} onChange={(event) => set('team_archive_layout', event.target.value as TeamArchiveLayout)}>
-              {options?.team_archive_layouts.map((choice) => (
+            <span>Date filter</span>
+            <select value={settings.date_filter_field} onChange={(event) => set('date_filter_field', event.target.value as DateFilterField)}>
+              {options?.date_filters.map((choice) => (
                 <option key={choice.value} value={choice.value}>
                   {choice.label}
                 </option>
               ))}
             </select>
+            <small className="field-help">Server modified is safest when Dropbox metadata is the source of truth.</small>
           </label>
         </div>
+      </div>
+      <div className="settings-section">
+        <div className="settings-section-title">
+          <Archive size={17} />
+          <h3>Dropbox scope</h3>
+        </div>
+        <PathEditor
+          title="Archive folder"
+          helpText="Copy runs create archive copies here. Originals stay where they are."
+          value={settings.archive_root}
+          onChange={(value) => set('archive_root', value)}
+          onPick={() => onPick('archive')}
+        />
+        <PathList
+          title="Folders to include"
+          emptyText="Whole Dropbox"
+          helpText="Leave empty to scan the whole connected Dropbox scope."
+          paths={settings.source_roots}
+          allowRoot
+          onAdd={(value) => set('source_roots', addUniquePath(settings.source_roots, value, true))}
+          onRemove={(path) => set('source_roots', settings.source_roots.filter((item) => item !== path))}
+          onPick={() => onPick('source')}
+        />
+        <PathList
+          title="Folders to skip"
+          emptyText="No skipped folders"
+          helpText="Use this for active project areas or any destination that should never be scanned."
+          paths={settings.excluded_roots}
+          onAdd={(value) => set('excluded_roots', addUniquePath(settings.excluded_roots, value, false))}
+          onRemove={(path) => set('excluded_roots', settings.excluded_roots.filter((item) => item !== path))}
+          onPick={() => onPick('exclude')}
+        />
+      </div>
+      {accountMode === 'team_admin' && (
+        <div className="settings-section">
+          <div className="settings-section-title">
+            <Server size={17} />
+            <h3>Team mode</h3>
+          </div>
+          <div className="form-grid team-mode-grid">
+            <label className="field">
+              <span>Team coverage</span>
+              <select value={settings.team_coverage_preset} onChange={(event) => set('team_coverage_preset', event.target.value as TeamCoveragePreset)}>
+                {options?.team_coverage.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+              <small className="field-help">Start with team-owned content unless the client asks for every member namespace.</small>
+            </label>
+            <label className="field">
+              <span>Archive layout</span>
+              <select value={settings.team_archive_layout} onChange={(event) => set('team_archive_layout', event.target.value as TeamArchiveLayout)}>
+                {options?.team_archive_layouts.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+              <small className="field-help">Segmented keeps archives separated by source namespace.</small>
+            </label>
+          </div>
+        </div>
       )}
-      <label className="field">
-        <span>Local reports folder</span>
-        <input value={settings.output_dir} onChange={(event) => set('output_dir', event.target.value)} />
-      </label>
+      <div className="settings-section">
+        <div className="settings-section-title">
+          <HardDrive size={17} />
+          <h3>Local outputs</h3>
+        </div>
+        <label className="field">
+          <span>Local reports folder</span>
+          <input value={settings.output_dir} onChange={(event) => set('output_dir', event.target.value)} />
+          <small className="field-help">Run state, manifests, and CSV reports are written here on this computer.</small>
+        </label>
+      </div>
       <details className="advanced">
         <summary>Advanced settings</summary>
         <div className="form-grid">
@@ -652,12 +774,25 @@ function SettingsPanel({
   );
 }
 
-function PathEditor({ title, value, onChange, onPick }: { title: string; value: string; onChange: (value: string) => void; onPick: () => void }) {
+function PathEditor({
+  title,
+  helpText,
+  value,
+  onChange,
+  onPick,
+}: {
+  title: string;
+  helpText: string;
+  value: string;
+  onChange: (value: string) => void;
+  onPick: () => void;
+}) {
   return (
     <div className="path-block">
       <label className="field">
         <span>{title}</span>
         <input value={value} onChange={(event) => onChange(event.target.value)} onBlur={(event) => onChange(normalizeDropboxPath(event.target.value))} />
+        <small className="field-help">{helpText}</small>
       </label>
       <button className="ghost-button" onClick={onPick}>
         <FolderOpen size={16} /> Browse Dropbox
@@ -669,6 +804,7 @@ function PathEditor({ title, value, onChange, onPick }: { title: string; value: 
 function PathList({
   title,
   emptyText,
+  helpText,
   paths,
   allowRoot = false,
   onAdd,
@@ -677,6 +813,7 @@ function PathList({
 }: {
   title: string;
   emptyText: string;
+  helpText: string;
   paths: string[];
   allowRoot?: boolean;
   onAdd: (value: string) => void;
@@ -687,7 +824,10 @@ function PathList({
   return (
     <div className="path-list">
       <div className="section-heading compact">
-        <h3>{title}</h3>
+        <div>
+          <h3>{title}</h3>
+          <p>{helpText}</p>
+        </div>
         <button className="ghost-button" onClick={onPick}>
           <FolderOpen size={16} /> Browse
         </button>
@@ -740,6 +880,68 @@ function NumberField({
       <span>{label}</span>
       <input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} />
     </label>
+  );
+}
+
+function CopyRunDialog({
+  settings,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  settings: RunSettings;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-backdrop">
+      <section className="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="copy-run-title">
+        <div className="confirm-badge">
+          <Archive size={22} />
+        </div>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Copy run confirmation</p>
+            <h2 id="copy-run-title">Create archive copies in Dropbox?</h2>
+            <p>Original files are not deleted or moved. This run writes archive copies and local reports only.</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="confirm-summary">
+          <div>
+            <span>Archive destination</span>
+            <strong>{normalizeDropboxPath(settings.archive_root)}</strong>
+          </div>
+          <div>
+            <span>Cutoff date</span>
+            <strong>{settings.cutoff_date}</strong>
+          </div>
+          <div>
+            <span>Scan scope</span>
+            <strong>{settings.source_roots.length ? `${settings.source_roots.length} included folder(s)` : 'Whole connected Dropbox scope'}</strong>
+          </div>
+          <div>
+            <span>Reports folder</span>
+            <strong>{settings.output_dir}</strong>
+          </div>
+        </div>
+        <div className="notice warning">
+          <AlertTriangle size={18} />
+          <span>Use a dry run first when the client has not reviewed the matched files report.</span>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost-button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary-button" onClick={onConfirm} disabled={busy}>
+            {busy ? <Loader2 className="spin" size={16} /> : <Archive size={16} />} Confirm copy run
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -827,26 +1029,40 @@ function RunHistory({
   busy: boolean;
 }) {
   return (
-    <aside className="panel history-panel">
-      <div className="section-heading compact">
-        <h2>Local runs</h2>
+    <details className="panel history-panel">
+      <summary className="history-summary">
+        <span>
+          <strong>Local runs</strong>
+          <small>{history?.runs.length ? `${history.runs.length} saved run(s)` : 'No saved runs'}</small>
+        </span>
+        <ChevronRight size={18} />
+      </summary>
+      <div className="history-toolbar">
         <button className="ghost-button" onClick={onResume} disabled={busy || !history?.latest_run_id}>
-          {busy ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />} Resume
+          {busy ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />} Resume latest run
         </button>
       </div>
       <div className="history-list">
         {history?.runs.slice(0, 6).map((run) => (
           <button key={`${run.run_id}:${run.run_dir}`} onClick={() => onOpen(run.run_id)}>
-            <span>
-              <strong>{run.run_id || run.run_dir}</strong>
+            <span className="history-copy">
+              <strong title={run.run_id || run.run_dir}>{shortRunId(run.run_id || run.run_dir)}</strong>
               <small>{run.status_message}</small>
+              <span className="history-meta">
+                <CalendarClock size={13} />
+                {formatDateTime(run.created_at)}
+              </span>
             </span>
-            {run.latest && <StatusPill tone="neutral" text="Latest" />}
+            <span className="history-pills">
+              <StatusPill tone="neutral" text={runModeLabel(run.mode)} />
+              {run.has_issues && <StatusPill tone="danger" text="Review" />}
+              {run.latest && <StatusPill tone="neutral" text="Latest" />}
+            </span>
           </button>
         ))}
         {(!history || history.runs.length === 0) && <p className="empty-state">No local run history found in the current reports folder.</p>}
       </div>
-    </aside>
+    </details>
   );
 }
 
@@ -881,6 +1097,8 @@ function ResultsPanel({
   }
   const fileRunId = status.actual_run_id || result.run_id || status.run_id;
   const issueRows = [...result.conflicts, ...result.failures, ...result.blocked];
+  const reportFiles = primaryReportFiles(result.output_files);
+  const technicalFiles = result.output_files.filter((name) => !reportFiles.includes(name));
   return (
     <section className="results-grid">
       <div className="panel results-main">
@@ -899,46 +1117,85 @@ function ResultsPanel({
             </div>
           ))}
         </div>
-        <h3>Top folders</h3>
-        <div className="table">
-          <div className="table-head">
-            <span>Folder</span>
-            <span>Matched</span>
-            <span>Copied</span>
-            <span>Skipped</span>
-            <span>Failed</span>
+        <section className="result-section">
+          <div className="result-section-heading">
+            <h3>Files to review</h3>
+            <p>Folders with the largest matched file counts are listed first.</p>
           </div>
-          {result.top_folders.map((folder) => (
-            <div className="table-row" key={folder.folder}>
-              <span>{folder.folder}</span>
-              <span>{folder.matched}</span>
-              <span>{folder.copied}</span>
-              <span>{folder.skipped}</span>
-              <span>{folder.failed}</span>
+          <div className="table">
+            <div className="table-head">
+              <span>Folder</span>
+              <span>Matched</span>
+              <span>Copied</span>
+              <span>Skipped</span>
+              <span>Failed</span>
             </div>
-          ))}
-        </div>
-        <h3>{result.review_title}</h3>
-        {issueRows.length ? (
-          <ul className="issue-list">
-            {issueRows.slice(0, 20).map((item) => (
-              <li key={item}>{item}</li>
+            {result.top_folders.map((folder) => (
+              <div className="table-row" key={folder.folder}>
+                <span>{folder.folder}</span>
+                <span>{folder.matched.toLocaleString()}</span>
+                <span>{folder.copied.toLocaleString()}</span>
+                <span>{folder.skipped.toLocaleString()}</span>
+                <span>{folder.failed.toLocaleString()}</span>
+              </div>
             ))}
-          </ul>
-        ) : (
-          <p className="empty-state">{result.already_archived[0] || 'No conflicts or failures were reported.'}</p>
-        )}
+          </div>
+        </section>
+        <section className="result-section">
+          <div className="result-section-heading">
+            <h3>{result.review_title}</h3>
+            <p>Use these rows for manual follow-up before sharing the report.</p>
+          </div>
+          {issueRows.length ? (
+            <ul className="issue-list">
+              {issueRows.slice(0, 20).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-state">{result.already_archived[0] || 'No conflicts or failures were reported.'}</p>
+          )}
+        </section>
       </div>
       <aside className="panel output-panel">
-        <h2>Output files</h2>
-        <p>{status.run_dir}</p>
-        <div className="file-list">
-          {result.output_files.map((name) => (
-            <a key={name} href={fileUrl(fileRunId, name, outputDir)} target="_blank" rel="noreferrer">
-              {name}
-            </a>
-          ))}
+        <div className="output-heading">
+          <HardDrive size={18} />
+          <div>
+            <h2>Reports</h2>
+          </div>
         </div>
+        <div className="report-list">
+          {reportFiles.map((name) => {
+            const meta = outputFileMeta(name);
+            return (
+              <a key={name} className="report-link" href={fileUrl(fileRunId, name, outputDir)} target="_blank" rel="noreferrer">
+                <FileCheck2 size={17} />
+                <span>
+                  <strong>{meta.label}</strong>
+                  <small>{name}</small>
+                </span>
+              </a>
+            );
+          })}
+        </div>
+        {technicalFiles.length > 0 && (
+          <details className="technical-files">
+            <summary>{technicalFiles.length} technical file(s)</summary>
+            <div className="technical-file-list">
+              {technicalFiles.map((name) => (
+                <a key={name} href={fileUrl(fileRunId, name, outputDir)} target="_blank" rel="noreferrer">
+                  {name}
+                </a>
+              ))}
+            </div>
+          </details>
+        )}
+        {status.run_dir && (
+          <details className="output-location">
+            <summary>Output folder</summary>
+            <p className="output-path">{status.run_dir}</p>
+          </details>
+        )}
         <button className="primary-button wide" onClick={onStartAnother}>
           Start another run
         </button>
@@ -988,6 +1245,71 @@ function StatusPill({ tone, text }: { tone: 'success' | 'danger' | 'neutral'; te
   return <span className={`status-pill ${tone}`}>{text}</span>;
 }
 
+function formatDateTime(value: string): string {
+  if (!value) return 'Date unknown';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function runModeLabel(mode: string): string {
+  const labels: Record<string, string> = {
+    inventory_only: 'Inventory',
+    dry_run: 'Preview',
+    copy_run: 'Copy',
+  };
+  return labels[mode] || mode.replace(/_/g, ' ');
+}
+
+function shortRunId(value: string): string {
+  const match = value.match(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+  if (!match) return value;
+  return `${match[0].slice(0, 8)}...${match[0].slice(-6)}`;
+}
+
+function primaryReportFiles(names: string[]): string[] {
+  const selected = [
+    findOutputFile(names, ['summary.md', 'summary.json']),
+    findOutputFile(names, ['matched']),
+    findOutputFile(names, ['inventory']),
+    findOutputFile(names, ['verification_report.csv', 'verification']),
+  ].filter((name): name is string => Boolean(name));
+  return selected.length ? selected.slice(0, 4) : names.slice(0, 3);
+}
+
+function findOutputFile(names: string[], preferred: string[]): string | undefined {
+  for (const pattern of preferred) {
+    const found = names.find((name) => name.toLowerCase().includes(pattern));
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function outputFileMeta(name: string): { label: string; description: string } {
+  const lower = name.toLowerCase();
+  if (lower === 'app.log') return { label: 'Run log', description: 'Support log with detailed run messages.' };
+  if (lower === 'app.jsonl') return { label: 'Event stream', description: 'Structured event log for debugging or audit review.' };
+  if (lower.includes('config_snapshot')) return { label: 'Configuration snapshot', description: 'Settings captured at the start of the run.' };
+  if (lower.includes('manifest')) return { label: 'Copy manifest', description: 'Source and destination mapping for archive copy work.' };
+  if (lower.includes('verification')) return { label: 'Verification report', description: 'Post-copy checks against the planned archive output.' };
+  if (lower.includes('matched')) return { label: 'Matched files', description: 'Files that met the cutoff and scope rules.' };
+  if (lower.includes('copied')) return { label: 'Copied files', description: 'Archive copy results for completed copy work.' };
+  if (lower.includes('skipped')) return { label: 'Skipped files', description: 'Items intentionally skipped by rules or safety checks.' };
+  if (lower.includes('conflict')) return { label: 'Conflicts', description: 'Files needing manual review before retrying.' };
+  if (lower.includes('failure') || lower.includes('failed')) return { label: 'Failures', description: 'Errors from Dropbox or local report writing.' };
+  if (lower.includes('blocked')) return { label: 'Blocked items', description: 'Items not processed because a safety check stopped them.' };
+  if (lower.includes('inventory')) return { label: 'Inventory', description: 'Full discovered Dropbox inventory for this run.' };
+  if (lower.includes('summary') || lower.includes('report')) return { label: 'Run summary', description: 'Human-readable overview of the run outcome.' };
+  if (lower.endsWith('.db')) return { label: 'Resume database', description: 'Local state used to resume interrupted work.' };
+  return { label: 'Output file', description: 'Generated artifact from this run.' };
+}
+
 function folderToLocation(folder: BrowserFolder): BrowserLocation {
   return {
     display_path: folder.display_path,
@@ -1006,7 +1328,7 @@ function errorMessage(err: unknown): string {
 
 function stepLabel(step: Step): string {
   return {
-    account: 'Account',
+    account: 'Welcome',
     connect: 'Connection',
     settings: 'Settings',
     run: 'Progress',
@@ -1016,7 +1338,7 @@ function stepLabel(step: Step): string {
 
 function headingForStep(step: Step): string {
   return {
-    account: 'Start a local cleanup run',
+    account: 'Welcome to Dropbox Cleaner',
     connect: 'Verify Dropbox access',
     settings: 'Configure the archive',
     run: 'Run in progress',
